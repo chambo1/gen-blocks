@@ -39,7 +39,7 @@ const config = getDefaultConfig({
   appName: "GenBlocks",
   projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID",
   chains: [genlayerTestnet],
-  ssr: true, // ✨ Enabled for Vercel/Next.js compatibility
+  // Removed ssr: true because it breaks localStorage persistence on refresh without cookieStorage
   transports: {
     [genlayerTestnet.id]: http(GENLAYER_RPC),
   },

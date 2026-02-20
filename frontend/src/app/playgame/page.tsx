@@ -1524,23 +1524,6 @@ export default function PlayGame() {
           to { transform: translate(-50%, 0); opacity: 1; }
         }
 
-        .player-marker {
-          position: absolute;
-          top: -10px;
-          right: -10px;
-          background: #ff006e;
-          color: white;
-          width: 30px;
-          height: 30px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: bold;
-          border: 2px solid #ffbe0b;
-          font-size: 0.7rem;
-        }
-
         .dice-container {
           text-align: center;
           margin: 2rem 0;
