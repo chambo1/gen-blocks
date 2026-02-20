@@ -1,0 +1,115 @@
+/* ------------------------------
+   Reset & Box Sizing
+------------------------------ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ------------------------------
+   Body Styling
+------------------------------ */
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #000000; /* Black background */
+  color: #ffffff;            /* White text */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* ------------------------------
+   Main Container
+------------------------------ */
+main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+  text-align: center;
+}
+
+/* ------------------------------
+   Title Styling
+------------------------------ */
+h1 {
+  font-size: 3rem; /* Adjust as needed */
+  font-weight: bold;
+  margin-bottom: 3rem;
+}
+
+/* ------------------------------
+   Game Menu Buttons
+------------------------------ */
+.game-menu {
+  display: grid;
+  gap: 1.5rem;
+  width: 18rem;
+  text-align: center;
+}
+
+.game-menu button {
+  padding: 1rem 0;
+  border-radius: 1rem;
+  border: none;
+  font-size: 1rem;
+  font-weight: bold;
+  transition: transform 0.2s ease-in-out, background-color 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.game-menu button:hover {
+  transform: scale(1.05);
+}
+
+/* Specific Button Colors */
+.play-game {
+  background-color: #7c3aed; /* Purple */
+  color: white;
+}
+
+.play-game:hover {
+  background-color: #6d28d9;
+}
+
+.leaderboard {
+  background-color: #2563eb; /* Blue */
+  color: white;
+}
+
+.leaderboard:hover {
+  background-color: #1d4ed8;
+}
+
+.how-to-play {
+  background-color: #374151; /* Gray */
+  color: white;
+}
+
+.how-to-play:hover {
+  background-color: #1f2937;
+}
+
+/* ------------------------------
+   Wallet Connect Top Right
+------------------------------ */
+.wallet-button {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+}
+
+/* ------------------------------
+   Optional Network Status
+------------------------------ */
+.network-status {
+  margin-top: 2.5rem;
+  font-size: 0.875rem;
+  color: #9ca3af;
+}
