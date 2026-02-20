@@ -165,7 +165,8 @@ export default function PlayGame() {
         if (activeRoom && activeRoom !== 'none') {
           console.log('✅ Reconnecting to:', activeRoom)
           setRoomCode(activeRoom)
-          setGameState('playing')
+          // Set to lobby so the polling hooks can fetch the layout and transition to playing safely
+          setGameState('lobby')
           addLog(`🔄 Reconnected to room: ${activeRoom}`)
         }
       } catch (error) {
@@ -1455,14 +1456,19 @@ export default function PlayGame() {
           inset: 0;
           z-index: 10;
           pointer-events: none;
+          display: flex;
+          flex-wrap: wrap;
+          padding: 2px;
+          gap: 2px;
+          justify-content: flex-start;
+          align-content: flex-start;
         }
 
         .player-marker {
-          position: absolute;
           font-family: 'Orbitron', sans-serif;
           font-size: 0.55rem;
           font-weight: 900;
-          padding: 1px 4px;
+          padding: 2px 4px;
           border-radius: 4px;
           color: #000;
           box-shadow: 0 1px 3px rgba(0,0,0,0.5);
@@ -1470,11 +1476,6 @@ export default function PlayGame() {
           z-index: 11;
           transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
-
-        .player-marker.pos-0 { top: -6px; left: -6px; }
-        .player-marker.pos-1 { top: -6px; right: -6px; }
-        .player-marker.pos-2 { bottom: -6px; left: -6px; }
-        .player-marker.pos-3 { bottom: -6px; right: -6px; }
 
         .player-marker.you {
           border: 1px solid #fff;
@@ -2050,12 +2051,12 @@ export default function PlayGame() {
                               ${block.type === 'end' ? 'end-block' : ''}`}
                           >
                             <div className="player-markers-container">
-                              {/* All Player Markers positioned at corners */}
+                              {/* Player markers grid layout inside the block */}
                               {allGamePlayers.map((p, pIdx) => (
                                 p.position === index && (
                                   <div
                                     key={p.address}
-                                    className={`player-marker pos-${p.globalIndex} ${p.address.toLowerCase() === address?.toLowerCase() ? 'you' : ''}`}
+                                    className={`player-marker ${p.address.toLowerCase() === address?.toLowerCase() ? 'you' : ''}`}
                                     style={{
                                       backgroundColor: ['#00fff9', '#ff006e', '#ffbe0b', '#4CAF50'][p.globalIndex % 4],
                                       borderColor: p.address.toLowerCase() === address?.toLowerCase() ? '#fff' : 'transparent'
