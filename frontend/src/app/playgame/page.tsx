@@ -168,6 +168,9 @@ export default function PlayGame() {
           // Set to lobby so the polling hooks can fetch the layout and transition to playing safely
           setGameState('lobby')
           addLog(`🔄 Reconnected to room: ${activeRoom}`)
+          console.log('[DEBUG] checkActiveRoom setting gameState to lobby for room:', activeRoom)
+        } else {
+          console.log('[DEBUG] checkActiveRoom returned none or empty')
         }
       } catch (error) {
         console.error('Failed to check active room:', error)
@@ -354,17 +357,19 @@ export default function PlayGame() {
 
         // 1. Process Player Data
         if (playerData) {
+          console.log('[DEBUG] Mega-Poll PlayerData received:', playerData)
           const mainParts = playerData.split(';')
           if (mainParts.length >= 4) {
             const turnIdx = parseInt(mainParts[0]) || 0
             const phase = mainParts[2] as 'rolling' | 'finishing' || 'rolling'
             const playerStrings = mainParts[3].split('|')
+            console.log('[DEBUG] Mega-Poll playerStrings length:', playerStrings.length, playerStrings)
 
             setTurnPhase(phase)
 
             const results: Player[] = playerStrings.map((pStr: string, idx: number) => {
               const parts = pStr.split(':')
-              if (parts.length < 8) return null
+              if (parts.length < 7) return null
               const [addr, xp, pos, shields, combo, mult, elim, roll] = parts
               const currentIdx = playerStrings.length > 0 ? (turnIdx % playerStrings.length) : 0
               return {
