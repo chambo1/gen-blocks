@@ -118,22 +118,22 @@ export default function PlayGame() {
         readGenLayerContract('get_player_count', [roomCode]),
         readGenLayerContract('get_room_creator', [roomCode]),
         readGenLayerContract('is_game_started', [roomCode]),
-        !rawBoardLayout ? readGenLayerContract('get_board_layout', [roomCode]) : Promise.resolve(undefined)
+        readGenLayerContract('get_board_layout', [roomCode])  // Always fetch layout
       ])
 
-      console.log('Poll Lobby:', { count, creator, started, hasLayout: !!layout || !!rawBoardLayout })
+      console.log('Poll Lobby:', { count, creator, started, hasLayout: !!layout })
 
       if (count !== undefined) setRawPlayerCount(String(count))
       if (creator !== undefined) setRawRoomCreator(String(creator))
       if (started !== undefined) setRawGameStarted(Boolean(started))
-      if (layout !== undefined && layout !== '') setRawBoardLayout(String(layout))
+      if (layout && String(layout).trim() !== '') setRawBoardLayout(String(layout))
 
     } catch (err) {
       console.error('Lobby poll failed:', err)
     }
   }, [roomCode])
 
-  // Poll lobby state
+  // Poll lobby state — runs in lobby AND waiting states so all players stay in sync
   useEffect(() => {
     if (!roomCode) return
 
@@ -141,10 +141,10 @@ export default function PlayGame() {
     fetchLobbyState()
 
     const interval = setInterval(() => {
-      if (gameState === 'lobby') {
+      if (gameState === 'lobby' || gameState === 'waiting') {
         fetchLobbyState()
       }
-    }, 5000) // 5s polling, only in lobby
+    }, 3000) // 3s to keep lobby feeling live
     return () => clearInterval(interval)
   }, [roomCode, fetchLobbyState, gameState])
 
