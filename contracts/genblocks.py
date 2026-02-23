@@ -108,8 +108,8 @@ class GenBlocks(gl.Contract):
         self.game_started[room_code] = False
         self.current_turn[room_code] = "0"
         
-        # Initialize players list with creator
-        self.players_list[room_code] = creator.as_hex
+        # Initialize players list with creator (always lowercase for consistency)
+        self.players_list[room_code] = creator.as_hex.lower()
         self.player_active_room[creator.as_hex.lower()] = room_code
         
         # Initialize game completion tracking
@@ -315,7 +315,7 @@ class GenBlocks(gl.Contract):
             if finished:
                 raise Exception("Game already finished")
             
-            key = f"{room_code}:{player.as_hex}"
+            key = f"{room_code}:{player.as_hex.lower()}"
             in_room = self.player_in_room.get(key)
             if not in_room:
                 raise Exception("Not in room")
@@ -754,6 +754,7 @@ class GenBlocks(gl.Contract):
             return ""
         
         turn_idx = self.current_turn.get(room_code) or "0"
+        start_time = self.turn_start_time.get(room_code) or "0"
         phase = self.turn_phase.get(room_code) or "rolling"
         
         results = []
@@ -769,7 +770,7 @@ class GenBlocks(gl.Contract):
             results.append(f"{addr.lower()}:{xp}:{pos}:{shields}:{combo}:{mult}:{elim}:{roll}")
         
         players_data = "|".join(results)
-        return f"{turn_idx};0;{phase};{players_data}"
+        return f"{turn_idx};{start_time};{phase};{players_data}"
 
     @gl.public.view
     def get_active_room(self, player_addr: str) -> str:
@@ -853,7 +854,7 @@ class GenBlocks(gl.Contract):
         """
         player_data = self.get_all_player_data(room_code)
         gov_proposal = self.get_governance_proposal(room_code)
-        room_log = self.players_log.get(room_code) or ""
+        room_log = self.room_log.get(room_code) or ""
         game_over = self.is_room_game_over(room_code)
         
         return f"{player_data}#{gov_proposal}#{room_log}#{game_over}"
