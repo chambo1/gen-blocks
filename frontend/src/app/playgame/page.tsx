@@ -133,7 +133,7 @@ export default function PlayGame() {
     }
   }, [roomCode])
 
-  // Poll lobby state — runs in lobby AND waiting states so all players stay in sync
+  // Poll lobby state — runs in ALL game states to ensure board layout is fetched
   useEffect(() => {
     if (!roomCode) return
 
@@ -141,12 +141,16 @@ export default function PlayGame() {
     fetchLobbyState()
 
     const interval = setInterval(() => {
+      // Always poll during lobby/waiting. During playing, only poll for board if not loaded.
       if (gameState === 'lobby' || gameState === 'waiting') {
         fetchLobbyState()
+      } else if (gameState === 'playing' && board.length === 0) {
+        // Only fetch layout if board isn't loaded yet
+        fetchLobbyState()
       }
-    }, 3000) // 3s to keep lobby feeling live
+    }, 3000)
     return () => clearInterval(interval)
-  }, [roomCode, fetchLobbyState, gameState])
+  }, [roomCode, fetchLobbyState, gameState, board.length])
 
   // NEW: Auto-reconnect effect
   useEffect(() => {
@@ -454,30 +458,21 @@ export default function PlayGame() {
   }, [roomCode, address, gameState, governanceProposal])
 
   useEffect(() => {
-    // Always try to load board if we have layout, even in waiting (prefetch)
+    // Always try to load board if we have layout data from the contract
     if (rawBoardLayout && typeof rawBoardLayout === 'string' && rawBoardLayout.trim() !== '') {
       const parsedBoard = parseBoardLayout(rawBoardLayout)
-      // Update if board is empty OR if it was previously set to fallback (19 blocks)
-      // but contract board is different
-      if (parsedBoard.length > 0 && (board.length === 0 || board.length === 19)) {
+      if (parsedBoard.length > 0) {
+        // Always override with contract board — it's the source of truth
         setBoard(parsedBoard)
-        console.log('🎲 Board loaded from blockchain:', parsedBoard.length, 'blocks')
+        console.log('🎲 Board loaded from blockchain:', parsedBoard.length, 'blocks', rawBoardLayout.slice(0, 30))
       }
-    } else if (gameState === 'playing' && board.length === 0 && roomCode && !rawBoardLayout) {
+    } else if (gameState === 'playing' && board.length === 0 && roomCode) {
       // Retry fetching layout specifically if missing
       readGenLayerContract('get_board_layout', [roomCode]).then(layout => {
-        if (layout) setRawBoardLayout(layout)
+        if (layout) setRawBoardLayout(String(layout))
       })
-
-      // Fallback: if board hasn't loaded yet after game starts, use default layout
-      const defaultLayout = "0,1,1,1,1,1,2,2,2,3,3,4,4,5,5,6,6,7,7"
-      const parsedBoard = parseBoardLayout(defaultLayout)
-      if (parsedBoard.length > 0) {
-        setBoard(parsedBoard)
-        addLog('🎲 Using default board layout')
-      }
     }
-  }, [rawBoardLayout, gameState, board.length, roomCode, addLog])
+  }, [rawBoardLayout, gameState, roomCode])
 
   // REMOVED: Inconsistent setPlayers poll that was causing type issues.
   // displayPlayerCount and rendering now rely on allGamePlayers polled above.
@@ -1456,6 +1451,28 @@ export default function PlayGame() {
           border-color: #ff0000;
         }
 
+        .board-block.danger-block {
+          background: rgba(255, 100, 0, 0.2);
+          border-color: #ff6400;
+          box-shadow: 0 0 8px rgba(255, 100, 0, 0.3);
+        }
+
+        .board-block.hazard-block {
+          background: rgba(180, 0, 180, 0.2);
+          border-color: #b400b4;
+          box-shadow: 0 0 8px rgba(180, 0, 180, 0.3);
+        }
+
+        .board-block.steal-block {
+          background: rgba(255, 0, 110, 0.15);
+          border-color: #ff006e;
+        }
+
+        .board-block.auction-block {
+          background: rgba(255, 190, 11, 0.15);
+          border-color: #ffbe0b;
+        }
+
         .player-markers-container {
           position: absolute;
           inset: 0;
@@ -2057,11 +2074,11 @@ export default function PlayGame() {
                           >
                             <div className="player-markers-container">
                               {/* Player markers grid layout inside the block */}
-                              {allGamePlayers.map((p, pIdx) => (
+                              {allGamePlayers.map((p) => (
                                 p.position === index && (
                                   <div
                                     key={p.address}
-                                    className={`player-marker ${p.address.toLowerCase() === address?.toLowerCase() ? 'you' : ''}`}
+                                    className={`player-marker pos-${p.globalIndex % 4} ${p.address.toLowerCase() === address?.toLowerCase() ? 'you' : ''}`}
                                     style={{
                                       backgroundColor: ['#00fff9', '#ff006e', '#ffbe0b', '#4CAF50'][p.globalIndex % 4],
                                       borderColor: p.address.toLowerCase() === address?.toLowerCase() ? '#fff' : 'transparent'
