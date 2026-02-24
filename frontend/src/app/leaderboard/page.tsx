@@ -7,77 +7,86 @@ import Link from "next/link"
 import { readGenLayerContract } from '@/lib/genlayer-client'
 
 interface PlayerStats {
-    address: string
-    totalXP: number
-    gamesPlayed: number
-    gamesWon: number
-    winRate: number
+  address: string
+  totalXP: number
+  gamesPlayed: number
+  gamesWon: number
+  winRate: number
 }
 
 type LeaderboardPeriod = 'daily' | 'weekly' | 'alltime'
 
 export default function Leaderboard() {
-    const { address } = useAccount()
-    const [period, setPeriod] = useState<LeaderboardPeriod>('alltime')
-    const [leaderboard, setLeaderboard] = useState<PlayerStats[]>([])
-    const [loading, setLoading] = useState(true)
-    const [myStats, setMyStats] = useState<PlayerStats | null>(null)
+  const { address } = useAccount()
+  const [period, setPeriod] = useState<LeaderboardPeriod>('alltime')
+  const [leaderboard, setLeaderboard] = useState<PlayerStats[]>([])
+  const [loading, setLoading] = useState(true)
+  const [myStats, setMyStats] = useState<PlayerStats | null>(null)
 
-    // Fetch leaderboard data
-    useEffect(() => {
-        const fetchLeaderboard = async () => {
-            setLoading(true)
-            try {
-                // In a real implementation, you'd query multiple known players
-                // For now, we'll fetch the current user's stats as an example
-                if (address) {
-                    const statsFunc = period === 'daily' ? 'get_player_daily_stats' :
-                        period === 'weekly' ? 'get_player_weekly_stats' :
-                            'get_player_global_stats'
+  // Fetch leaderboard data from contract
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      setLoading(true)
+      try {
+        const periodParam = period === 'daily' ? 'daily' :
+          period === 'weekly' ? 'weekly' : 'alltime'
 
-                    const stats = await readGenLayerContract(statsFunc, [address])
+        const data = await readGenLayerContract('get_leaderboard', [periodParam])
 
-                    if (stats && stats !== '0,0,0') {
-                        const [xp, games, wins] = stats.split(',').map(Number)
-                        const playerData: PlayerStats = {
-                            address,
-                            totalXP: xp,
-                            gamesPlayed: games,
-                            gamesWon: wins,
-                            winRate: games > 0 ? (wins / games) * 100 : 0
-                        }
-                        setMyStats(playerData)
-                        setLeaderboard([playerData])
-                    } else {
-                        setMyStats(null)
-                        setLeaderboard([])
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to fetch leaderboard:', error)
-                setLeaderboard([])
+        if (data && typeof data === 'string' && data.trim() !== '') {
+          // Format: addr:xp:games:wins|addr:xp:games:wins|...
+          const entries = data.split('|').filter((e: string) => e.trim() !== '')
+          const players: PlayerStats[] = entries.map((entry: string) => {
+            const [addr, xp, games, wins] = entry.split(':')
+            const gamesNum = parseInt(games) || 0
+            const winsNum = parseInt(wins) || 0
+            return {
+              address: addr,
+              totalXP: parseInt(xp) || 0,
+              gamesPlayed: gamesNum,
+              gamesWon: winsNum,
+              winRate: gamesNum > 0 ? (winsNum / gamesNum) * 100 : 0
             }
-            setLoading(false)
+          })
+
+          // Sort by total XP descending
+          players.sort((a, b) => b.totalXP - a.totalXP)
+          setLeaderboard(players)
+
+          // Find current user's stats
+          if (address) {
+            const me = players.find(p => p.address.toLowerCase() === address.toLowerCase())
+            setMyStats(me || null)
+          }
+        } else {
+          setLeaderboard([])
+          setMyStats(null)
         }
-
-        fetchLeaderboard()
-    }, [period, address])
-
-    const formatAddress = (addr: string) => {
-        return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+      } catch (error) {
+        console.error('Failed to fetch leaderboard:', error)
+        setLeaderboard([])
+      }
+      setLoading(false)
     }
 
-    const getRankEmoji = (rank: number) => {
-        if (rank === 1) return '🥇'
-        if (rank === 2) return '🥈'
-        if (rank === 3) return '🥉'
-        return `#${rank}`
-    }
+    fetchLeaderboard()
+  }, [period, address])
 
-    return (
-        <>
-            <style dangerouslySetInnerHTML={{
-                __html: `
+  const formatAddress = (addr: string) => {
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+  }
+
+  const getRankEmoji = (rank: number) => {
+    if (rank === 1) return '🥇'
+    if (rank === 2) return '🥈'
+    if (rank === 3) return '🥉'
+    return `#${rank}`
+  }
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{
+        __html: `
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Space+Mono:wght@400;700&display=swap');
         
         body {
@@ -424,105 +433,105 @@ export default function Leaderboard() {
         }
       `}}></style>
 
-            <div className="page-container-leaderboard">
-                <Link href="/" className="back-button-leaderboard">
-                    ← Back
-                </Link>
+      <div className="page-container-leaderboard">
+        <Link href="/" className="back-button-leaderboard">
+          ← Back
+        </Link>
 
-                <div className="wallet-button-leaderboard">
-                    <ConnectButton />
+        <div className="wallet-button-leaderboard">
+          <ConnectButton />
+        </div>
+
+        <div className="leaderboard-header">
+          <h1 className="leaderboard-title">🏆 Leaderboard</h1>
+        </div>
+
+        <div className="period-tabs">
+          <button
+            className={`period-tab ${period === 'daily' ? 'active' : ''}`}
+            onClick={() => setPeriod('daily')}
+          >
+            📅 Daily
+          </button>
+          <button
+            className={`period-tab ${period === 'weekly' ? 'active' : ''}`}
+            onClick={() => setPeriod('weekly')}
+          >
+            📊 Weekly
+          </button>
+          <button
+            className={`period-tab ${period === 'alltime' ? 'active' : ''}`}
+            onClick={() => setPeriod('alltime')}
+          >
+            ⭐ All Time
+          </button>
+        </div>
+
+        <div className="leaderboard-container">
+          {myStats && (
+            <div className="my-stats-card">
+              <div className="my-stats-title">Your Stats</div>
+              <div className="stats-grid">
+                <div className="stat-box">
+                  <div className="stat-label">Total XP</div>
+                  <div className="stat-value">{myStats.totalXP}</div>
                 </div>
-
-                <div className="leaderboard-header">
-                    <h1 className="leaderboard-title">🏆 Leaderboard</h1>
+                <div className="stat-box">
+                  <div className="stat-label">Games Played</div>
+                  <div className="stat-value">{myStats.gamesPlayed}</div>
                 </div>
-
-                <div className="period-tabs">
-                    <button
-                        className={`period-tab ${period === 'daily' ? 'active' : ''}`}
-                        onClick={() => setPeriod('daily')}
-                    >
-                        📅 Daily
-                    </button>
-                    <button
-                        className={`period-tab ${period === 'weekly' ? 'active' : ''}`}
-                        onClick={() => setPeriod('weekly')}
-                    >
-                        📊 Weekly
-                    </button>
-                    <button
-                        className={`period-tab ${period === 'alltime' ? 'active' : ''}`}
-                        onClick={() => setPeriod('alltime')}
-                    >
-                        ⭐ All Time
-                    </button>
+                <div className="stat-box">
+                  <div className="stat-label">Games Won</div>
+                  <div className="stat-value">{myStats.gamesWon}</div>
                 </div>
-
-                <div className="leaderboard-container">
-                    {myStats && (
-                        <div className="my-stats-card">
-                            <div className="my-stats-title">Your Stats</div>
-                            <div className="stats-grid">
-                                <div className="stat-box">
-                                    <div className="stat-label">Total XP</div>
-                                    <div className="stat-value">{myStats.totalXP}</div>
-                                </div>
-                                <div className="stat-box">
-                                    <div className="stat-label">Games Played</div>
-                                    <div className="stat-value">{myStats.gamesPlayed}</div>
-                                </div>
-                                <div className="stat-box">
-                                    <div className="stat-label">Games Won</div>
-                                    <div className="stat-value">{myStats.gamesWon}</div>
-                                </div>
-                                <div className="stat-box">
-                                    <div className="stat-label">Win Rate</div>
-                                    <div className="stat-value">{myStats.winRate.toFixed(1)}%</div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="leaderboard-table">
-                        <div className="table-header">
-                            <div>Rank</div>
-                            <div>Player</div>
-                            <div>Total XP</div>
-                            <div>Games</div>
-                            <div>Win Rate</div>
-                        </div>
-
-                        {loading ? (
-                            <div className="loading-spinner">
-                                Loading leaderboard...
-                            </div>
-                        ) : leaderboard.length === 0 ? (
-                            <div className="empty-state">
-                                <div className="empty-state-icon">🎮</div>
-                                <div className="empty-state-text">No data yet</div>
-                                <p>Play some games to appear on the leaderboard!</p>
-                            </div>
-                        ) : (
-                            leaderboard.map((player, index) => (
-                                <div
-                                    key={player.address}
-                                    className={`table-row ${player.address === address ? 'highlight' : ''}`}
-                                >
-                                    <div className={`rank ${index < 3 ? 'top3' : ''}`}>
-                                        {getRankEmoji(index + 1)}
-                                    </div>
-                                    <div className="player-address">
-                                        {player.address === address ? 'You' : formatAddress(player.address)}
-                                    </div>
-                                    <div className="stat-cell">{player.totalXP}</div>
-                                    <div className="stat-cell">{player.gamesPlayed}</div>
-                                    <div className="stat-cell win-rate">{player.winRate.toFixed(1)}%</div>
-                                </div>
-                            ))
-                        )}
-                    </div>
+                <div className="stat-box">
+                  <div className="stat-label">Win Rate</div>
+                  <div className="stat-value">{myStats.winRate.toFixed(1)}%</div>
                 </div>
+              </div>
             </div>
-        </>
-    )
+          )}
+
+          <div className="leaderboard-table">
+            <div className="table-header">
+              <div>Rank</div>
+              <div>Player</div>
+              <div>Total XP</div>
+              <div>Games</div>
+              <div>Win Rate</div>
+            </div>
+
+            {loading ? (
+              <div className="loading-spinner">
+                Loading leaderboard...
+              </div>
+            ) : leaderboard.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">🎮</div>
+                <div className="empty-state-text">No data yet</div>
+                <p>Play some games to appear on the leaderboard!</p>
+              </div>
+            ) : (
+              leaderboard.map((player, index) => (
+                <div
+                  key={player.address}
+                  className={`table-row ${player.address === address ? 'highlight' : ''}`}
+                >
+                  <div className={`rank ${index < 3 ? 'top3' : ''}`}>
+                    {getRankEmoji(index + 1)}
+                  </div>
+                  <div className="player-address">
+                    {player.address === address ? 'You' : formatAddress(player.address)}
+                  </div>
+                  <div className="stat-cell">{player.totalXP}</div>
+                  <div className="stat-cell">{player.gamesPlayed}</div>
+                  <div className="stat-cell win-rate">{player.winRate.toFixed(1)}%</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
 }

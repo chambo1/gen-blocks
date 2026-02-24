@@ -63,6 +63,10 @@ class GenBlocks(gl.Contract):
     # NEW: On-chain room logs
     room_log: TreeMap[str, str]  # room_code -> "entry1|entry2|..." (last 10 entries)
     
+    # NEW: Player registry (only players who completed a game)
+    known_players: TreeMap[str, str]  # "registry" -> "addr1,addr2,addr3,..."
+    known_players_set: TreeMap[str, str]  # player_address -> "1" (for O(1) dedup check)
+    
     # NEW: Player Status
     player_eliminated: TreeMap[str, str]  # room:player -> "true" or "false"
     
@@ -478,6 +482,15 @@ class GenBlocks(gl.Contract):
             
             # Clear active room
             self.player_active_room[player_addr.lower()] = ""
+            
+            # Register player in known_players (only on game completion)
+            if not self.known_players_set.get(player_addr.lower()):
+                self.known_players_set[player_addr.lower()] = "1"
+                current_list = self.known_players.get("registry") or ""
+                if current_list:
+                    self.known_players["registry"] = f"{current_list},{player_addr.lower()}"
+                else:
+                    self.known_players["registry"] = player_addr.lower()
     
     def _update_player_stats(self, player: str, xp: int, won: bool) -> None:
         """Update global player stats"""
@@ -629,6 +642,48 @@ class GenBlocks(gl.Contract):
         self.governance_active[room_code] = False
     
     # View functions for leaderboards
+    @gl.public.view
+    def get_all_known_players(self) -> str:
+        """Get all player addresses who have completed at least one game"""
+        return self.known_players.get("registry") or ""
+    
+    @gl.public.view
+    def get_leaderboard(self, period: str) -> str:
+        """Get full leaderboard data for all known players.
+        period: 'alltime', 'weekly', or 'daily'
+        Returns: addr:xp:games:wins|addr:xp:games:wins|...
+        """
+        players_str = self.known_players.get("registry") or ""
+        if not players_str:
+            return ""
+        
+        results = []
+        for addr in players_str.split(','):
+            addr = addr.strip().lower()
+            if not addr:
+                continue
+            
+            if period == 'weekly':
+                week_id = self._get_current_week_id()
+                key = f"{addr}:{week_id}"
+                xp = self.weekly_total_xp.get(key) or "0"
+                games = self.weekly_games_played.get(key) or "0"
+                wins = self.weekly_games_won.get(key) or "0"
+            elif period == 'daily':
+                day_id = self._get_current_day_id()
+                key = f"{addr}:{day_id}"
+                xp = self.daily_total_xp.get(key) or "0"
+                games = self.daily_games_played.get(key) or "0"
+                wins = self.daily_games_won.get(key) or "0"
+            else:  # alltime
+                xp = self.global_total_xp.get(addr) or "0"
+                games = self.global_games_played.get(addr) or "0"
+                wins = self.global_games_won.get(addr) or "0"
+            
+            results.append(f"{addr}:{xp}:{games}:{wins}")
+        
+        return "|".join(results)
+    
     @gl.public.view
     def get_player_global_stats(self, player: str) -> str:
         """Get player's all-time stats: total_xp,games_played,games_won"""

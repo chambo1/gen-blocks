@@ -40,7 +40,13 @@ export default function PlayGame() {
 
   const [isSigned, setIsSigned] = useState(false)
   const [isWrongNetwork, setIsWrongNetwork] = useState(false)
-  const [gameState, setGameState] = useState<'lobby' | 'waiting' | 'playing' | 'finished'>('lobby')
+  const [gameState, setGameState] = useState<'lobby' | 'waiting' | 'playing' | 'finished'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('genblocks_gameState')
+      if (saved === 'playing' || saved === 'waiting') return saved
+    }
+    return 'lobby'
+  })
   const [playerPosition, setPlayerPosition] = useState(0)
   const [playerXP, setPlayerXP] = useState(10)
   const [diceValue, setDiceValue] = useState<number | null>(null)
@@ -52,7 +58,10 @@ export default function PlayGame() {
   const [currentBlock, setCurrentBlock] = useState<any>(null)
   const [gameLog, setGameLog] = useState<string[]>([])
   const [allGamePlayers, setAllGamePlayers] = useState<Player[]>([])
-  const [roomCode, setRoomCode] = useState('')
+  const [roomCode, setRoomCode] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('genblocks_roomCode') || ''
+    return ''
+  })
   const [shields, setShields] = useState(0)
   const [comboCount, setComboCount] = useState(0)
   const [hasMultiplier, setHasMultiplier] = useState(false)
@@ -104,6 +113,24 @@ export default function PlayGame() {
       setXpPopup({ show: false, amount: 0, type: 'gain' })
     }, 2000)
   }, [])
+
+  // Persist roomCode and gameState to localStorage
+  useEffect(() => {
+    if (roomCode) {
+      localStorage.setItem('genblocks_roomCode', roomCode)
+    } else {
+      localStorage.removeItem('genblocks_roomCode')
+    }
+  }, [roomCode])
+
+  useEffect(() => {
+    if (gameState === 'playing' || gameState === 'waiting') {
+      localStorage.setItem('genblocks_gameState', gameState)
+    } else if (gameState === 'finished' || gameState === 'lobby') {
+      localStorage.removeItem('genblocks_gameState')
+      if (gameState === 'lobby') localStorage.removeItem('genblocks_roomCode')
+    }
+  }, [gameState])
 
   // Contract read hooks for syncing state
   // NOTE: Critical state (player count, creator, started) is now fetched via SDK polling
@@ -367,7 +394,7 @@ export default function PlayGame() {
             const turnIdx = parseInt(mainParts[0]) || 0
             const phase = mainParts[2] as 'rolling' | 'finishing' || 'rolling'
             const playerStrings = mainParts[3].split('|')
-            console.log('[DEBUG] Mega-Poll playerStrings length:', playerStrings.length, playerStrings)
+            console.log('[DEBUG] Mega-Poll PARSED turnIdx:', turnIdx, 'phase:', phase, 'playerStrings:', playerStrings)
 
             setTurnPhase(phase)
 
@@ -390,6 +417,8 @@ export default function PlayGame() {
                 isCurrentTurn: idx === currentIdx
               }
             }).filter((p: Player | null): p is Player => p !== null)
+
+            console.log('[DEBUG] Mega-Poll Final Players array:', results)
 
             if (results.length > 0) {
               setAllGamePlayers(results)
@@ -461,10 +490,12 @@ export default function PlayGame() {
     // Always try to load board if we have layout data from the contract
     if (rawBoardLayout && typeof rawBoardLayout === 'string' && rawBoardLayout.trim() !== '') {
       const parsedBoard = parseBoardLayout(rawBoardLayout)
+      console.log('[DEBUG] rawBoardLayout string:', rawBoardLayout)
+      console.log('[DEBUG] parsedBoard array:', parsedBoard)
       if (parsedBoard.length > 0) {
         // Always override with contract board — it's the source of truth
         setBoard(parsedBoard)
-        console.log('🎲 Board loaded from blockchain:', parsedBoard.length, 'blocks', rawBoardLayout.slice(0, 30))
+        console.log('🎲 Board loaded from blockchain:', parsedBoard.length, 'blocks')
       }
     } else if (gameState === 'playing' && board.length === 0 && roomCode) {
       // Retry fetching layout specifically if missing

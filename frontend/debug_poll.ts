@@ -1,80 +1,27 @@
-import { createPublicClient, http } from 'viem';
+import { config } from 'dotenv';
+import { resolve } from 'path';
 
-const GENLAYER_RPC = 'https://studio.genlayer.com/api';
-const CONTRACT_ADDRESS = '0xb9d3bbB33036FdB0Dfe6b5F7053e1F2E057F7E8E';
+// Load environment variables manually
+config({ path: resolve(__dirname, '.env.local') });
 
-const CONTRACT_ABI = [
-    {
-        "type": "function",
-        "name": "get_full_game_state",
-        "inputs": [{ "name": "room_code", "type": "string" }],
-        "outputs": [{ "name": "", "type": "string" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "get_active_room",
-        "inputs": [{ "name": "player_addr", "type": "string" }],
-        "outputs": [{ "name": "", "type": "string" }],
-        "stateMutability": "view"
-    }
-];
+// Make sure to mock window/document if needed, but for simple fetch we might not.
+// We'll just define the SDK call manually.
 
-const client = createPublicClient({
-    transport: http(GENLAYER_RPC)
-});
-
-async function main() {
-    const address = '0xc5f8cfb7ba40986de13670942e617d9197c38c82';
-
-    try {
-        console.log('Fetching active room for', address);
-        const activeRoom = await client.readContract({
-            address: CONTRACT_ADDRESS,
-            abi: CONTRACT_ABI,
-            functionName: 'get_active_room',
-            args: [address],
-        });
-
-        console.log('Active Room for', address, ':', activeRoom);
-
-        if (!activeRoom || activeRoom === 'none') {
-            console.log('No active room found. Try joining a game in the browser first.');
-            process.exit(0);
-        }
-
-        const roomCode = activeRoom as string;
-
-        const data = await client.readContract({
-            address: CONTRACT_ADDRESS,
-            abi: CONTRACT_ABI,
-            functionName: 'get_full_game_state',
-            args: [roomCode],
-        });
-        console.log('--- RAW PAYLOAD ---');
-        console.log(data);
-
-        const parts = (data as string).split('#');
-        console.log('\n--- SPLIT PAYLOAD ---');
-        console.log('Player Data:', parts[0]);
-
-        const playerParts = parts[0].split(';');
-        console.log('Main Parts:', playerParts);
-
-        if (playerParts.length >= 4) {
-            const playerStrings = playerParts[3].split('|');
-            console.log('Player Strings:', playerStrings);
-
-            const parsed = playerStrings.map(p => p.split(':'));
-            console.log('Parsed Array:', parsed);
-        }
-
-        console.log('Gov Data:', parts[1]);
-        console.log('Log Data:', parts[2]);
-        console.log('Game Over:', parts[3]);
-    } catch (err) {
-        console.error('Error fetching state:', err);
-    }
+async function testPoll() {
+  const rpc = process.env.NEXT_PUBLIC_GENLAYER_RPC;
+  const address = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
+  console.log('RPC:', rpc);
+  console.log('Contract:', address);
+  
+  // Quick fetch using direct JSON-RPC to see what the contract actually returns
+  const body = {
+    jsonrpc: "2.0",
+    method: "eth_call",
+    params: [{
+      to: address,
+      data: "0x8faeecf800000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000006324b423337440000000000000000000000000000000000000000000000000000" // We need the actual encoded data for get_full_game_state. Let's just use the genlayer SDK if possible.
+    }, "latest"],
+    id: 1
+  };
 }
-
-main();
+testPoll();
