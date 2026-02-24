@@ -18,6 +18,7 @@ class GenBlocks(gl.Contract):
     current_turn: TreeMap[str, str]
     last_dice_roll: TreeMap[str, str]
     turn_phase: TreeMap[str, str]  # "rolling" or "finishing"
+    turn_start_time: TreeMap[str, str]  # room_code -> timestamp when turn started
     
     # Board layout - store as comma-separated block types
     board_layout: TreeMap[str, str]

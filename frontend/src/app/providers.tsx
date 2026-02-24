@@ -1,10 +1,10 @@
 "use client"
 
-import { ReactNode, useState, useEffect } from "react"
-import { http, createConfig, WagmiProvider } from "wagmi"
+import { ReactNode, useState, useEffect, useRef } from "react"
+import { http, WagmiProvider } from "wagmi"
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { CONTRACT_ADDRESS, CONTRACT_ABI, GENLAYER_RPC, GENLAYER_CHAIN_ID } from '@/lib/genlayer'
+import { GENLAYER_RPC, GENLAYER_CHAIN_ID } from '@/lib/genlayer'
 
 /**
  * 🔥 Your GenLayer Chain (EXPORTED)
@@ -32,23 +32,22 @@ export const genlayerTestnet = {
   testnet: true,
 } as const
 
-//
-// 🧠 Wagmi v2 Config
-//
-const config = getDefaultConfig({
-  appName: "GenBlocks",
-  projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID",
-  chains: [genlayerTestnet],
-  // Removed ssr: true because it breaks localStorage persistence on refresh without cookieStorage
-  transports: {
-    [genlayerTestnet.id]: http(GENLAYER_RPC),
-  },
-})
-
 const queryClient = new QueryClient()
 
 export function Providers({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false)
+
+  // Create config once using useRef to avoid SSR + IndexedDB errors from WalletConnect
+  const configRef = useRef(
+    getDefaultConfig({
+      appName: "GenBlocks",
+      projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID",
+      chains: [genlayerTestnet],
+      transports: {
+        [GENLAYER_CHAIN_ID]: http(GENLAYER_RPC),
+      },
+    })
+  )
 
   useEffect(() => {
     setMounted(true)
@@ -59,7 +58,7 @@ export function Providers({ children }: { children: ReactNode }) {
   }
 
   return (
-    <WagmiProvider config={config}>
+    <WagmiProvider config={configRef.current}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider>
           {children}

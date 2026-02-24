@@ -428,7 +428,16 @@ export default function PlayGame() {
               const currentTurnAddr = results[currentIdx]?.address
               if (currentTurnAddr) {
                 setCurrentTurnAddress(currentTurnAddr)
-                setIsMyTurn(currentTurnAddr.toLowerCase() === address.toLowerCase())
+                const myTurn = currentTurnAddr.toLowerCase() === address.toLowerCase()
+                console.log('[DEBUG] TURN CHECK:', {
+                  currentTurnAddr: currentTurnAddr,
+                  myAddress: address,
+                  currentTurnAddrLower: currentTurnAddr.toLowerCase(),
+                  myAddressLower: address.toLowerCase(),
+                  isMyTurn: myTurn,
+                  allAddresses: results.map(p => p.address)
+                })
+                setIsMyTurn(myTurn)
               }
 
               const me = results.find(p => p.address.toLowerCase() === address.toLowerCase())
