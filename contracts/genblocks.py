@@ -1048,8 +1048,11 @@ class GenBlocks(gl.Contract):
         
         if reward_type == 0:
             current_xp = int(self.player_xp.get(key) or "0")
-            self.player_xp[key] = str(current_xp + 5)
-            self._add_to_log(room_code, "Bonus: +5 XP")
+            base_xp = 5
+            active_mult = int(self.turn_active_mult.get(room_code) or "1")
+            xp_gain = base_xp * active_mult
+            self.player_xp[key] = str(current_xp + xp_gain)
+            self._add_to_log(room_code, f"Bonus: +{xp_gain} XP")
         else:
             current_shields = int(self.player_shields.get(key) or "0")
             self.player_shields[key] = str(current_shields + 1)
@@ -1080,7 +1083,9 @@ class GenBlocks(gl.Contract):
         reward_type = random.random()
         
         if reward_type < 0.7:
-            xp_gain = random.randint(5, 20)
+            base_xp = random.randint(5, 20)
+            active_mult = int(self.turn_active_mult.get(room_code) or "1")
+            xp_gain = base_xp * active_mult
             current_xp = int(self.player_xp.get(key) or "0")
             self.player_xp[key] = str(current_xp + xp_gain)
             self._add_to_log(room_code, f"Mystery: +{xp_gain} XP")
@@ -1116,8 +1121,11 @@ class GenBlocks(gl.Contract):
         
         if reward == 1:
             current_xp = int(self.player_xp.get(key) or "0")
-            self.player_xp[key] = str(current_xp + 15)
-            self._add_to_log(room_code, "Lucky: +15 XP!")
+            base_xp = 15
+            active_mult = int(self.turn_active_mult.get(room_code) or "1")
+            xp_gain = base_xp * active_mult
+            self.player_xp[key] = str(current_xp + xp_gain)
+            self._add_to_log(room_code, f"Lucky: +{xp_gain} XP!")
         elif reward == 2:
             current_shields = int(self.player_shields.get(key) or "0")
             self.player_shields[key] = str(current_shields + 1)
