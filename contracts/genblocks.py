@@ -13,7 +13,7 @@ class GenBlocks(gl.Contract):
     player_position: TreeMap[str, str]
     player_shields: TreeMap[str, str]
     player_combo: TreeMap[str, str]
-    player_multiplier: TreeMap[str, bool]
+    player_multiplier: TreeMap[str, str]
     
     current_turn: TreeMap[str, str]
     last_dice_roll: TreeMap[str, str]
