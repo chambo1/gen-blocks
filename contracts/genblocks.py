@@ -18,6 +18,7 @@ class GenBlocks(gl.Contract):
     current_turn: TreeMap[str, str]
     last_dice_roll: TreeMap[str, str]
     turn_phase: TreeMap[str, str]  # "rolling" or "finishing"
+    turn_active_mult: TreeMap[str, str]  # room_code -> "1" or "2" based on multiplier active status
     turn_start_time: TreeMap[str, str]  # room_code -> timestamp when turn started
     
     # Board layout - store as comma-separated block types
@@ -34,6 +35,8 @@ class GenBlocks(gl.Contract):
     # Auction state
     auction_highest_bid: TreeMap[str, str]
     auction_highest_bidder: TreeMap[str, str]
+    auction_turn_index: TreeMap[str, str]  # int index into players list
+    auction_passed: TreeMap[str, str]  # comma-separated list of addresses who have passed
     
     # NEW: Governance system
     governance_proposal: TreeMap[str, str]  # room_code -> "proposal_type:description"
@@ -41,6 +44,7 @@ class GenBlocks(gl.Contract):
     governance_votes_no: TreeMap[str, str]  # room_code -> count
     governance_player_voted: TreeMap[str, bool]  # room:player -> has_voted
     governance_active: TreeMap[str, bool]  # room_code -> is_proposal_active
+    pending_governance_voters: TreeMap[str, str]  # comma-separated list of addresses who haven't voted yet
     
     # NEW: Global leaderboard (all-time)
     global_total_xp: TreeMap[str, str]  # player_address -> total XP earned
@@ -74,12 +78,19 @@ class GenBlocks(gl.Contract):
     # NEW: Reconnection support
     player_active_room: TreeMap[str, str]  # player_address -> current room_code (if in progress)
     
+    # NEW: Steal interaction
+    pending_steal_target: TreeMap[str, str]
+    pending_steal_attacker: TreeMap[str, str]
+    pending_steal_time: TreeMap[str, str]
+    
     # NEW: Randomness entropy
     player_nonce: TreeMap[str, str]  # room:player -> count for randomness seeding
     
     def __init__(self):
         self.owner = gl.message.sender_address
         self.game_counter = "0"
+        self.turn_active_mult = gl.TreeMap()
+        self.player_multiplier = gl.TreeMap()
     
     def _get_current_week_id(self) -> str:
         """Get current week ID (weeks since epoch)"""
@@ -149,7 +160,7 @@ class GenBlocks(gl.Contract):
         self.player_position[key] = "0"
         self.player_shields[key] = "0"
         self.player_combo[key] = "0"
-        self.player_multiplier[key] = False
+        self.player_multiplier[key] = "0"
         self.player_eliminated[key] = "false"
     
     def _add_to_log(self, room_code: str, entry: str) -> None:
@@ -220,7 +231,7 @@ class GenBlocks(gl.Contract):
         self.player_position[key] = "0"
         self.player_shields[key] = "0"
         self.player_combo[key] = "0"
-        self.player_multiplier[key] = False
+        self.player_multiplier[key] = "0"
         self.player_eliminated[key] = "false"
         
         if count_num + 1 == 4:
@@ -362,6 +373,14 @@ class GenBlocks(gl.Contract):
             self.last_dice_roll[key] = str(dice_roll)
             self._add_to_log(room_code, f"{player.as_hex[:6]} rolled {dice_roll} to {new_pos}")
             
+            # Consume multiplier charge for the turn
+            current_mult = int(self.player_multiplier.get(key) or "0")
+            if current_mult > 0:
+                self.player_multiplier[key] = str(current_mult - 1)
+                self.turn_active_mult[room_code] = "2"
+            else:
+                self.turn_active_mult[room_code] = "1"
+            
             # Set to finishing phase instead of advancing turn
             # This allows the player to see their results before finishing turn
             self.turn_phase[room_code] = "finishing"
@@ -418,6 +437,7 @@ class GenBlocks(gl.Contract):
             
         self.current_turn[room_code] = str(next_turn)
         self.turn_phase[room_code] = "rolling"
+        self.turn_active_mult[room_code] = "1"
 
     def _conclude_game_session(self, room_code: str) -> None:
         """Internal: Finish game and update leaderboards"""
@@ -547,100 +567,129 @@ class GenBlocks(gl.Contract):
     def create_governance_proposal(self, room_code: str, proposal_type: str) -> None:
         """Create a governance proposal (called when landing on governance block)"""
         player = gl.message.sender_address
-        player = gl.message.sender_address
         key = f"{room_code}:{player.as_hex.lower()}"
         
         in_room = self.player_in_room.get(key)
-        if not in_room:
-            raise Exception("Not in room")
+        if not in_room: raise Exception("Not in room")
+
+        players_str = self.players_list.get(room_code)
+        players = players_str.split(',')
+        turn_index = int(self.current_turn.get(room_code) or "0")
+        current_player = players[turn_index % len(players)]
+        if current_player.lower() != player.as_hex.lower(): raise Exception("Not your turn")
         
-        # Proposal types: "double_xp", "extra_turn", "shield_all"
-        if proposal_type not in ["double_xp", "extra_turn", "shield_all"]:
+        if proposal_type not in ["group_xp", "shield_all", "burn_shields", "strip_multipliers", "grant_multipliers", "tax_players"]:
             raise Exception("Invalid proposal type")
-        
+            
         descriptions = {
-            "double_xp": "Double XP for all players next round",
-            "extra_turn": "Proposer gets an extra turn",
-            "shield_all": "All players get a shield"
+            "group_xp": "+5 XP for ALL players",
+            "shield_all": "Give ALL players 1 Shield",
+            "burn_shields": "Destroy ALL shields in game",
+            "strip_multipliers": "Remove ALL 2x multipliers in game",
+            "grant_multipliers": "Give EVERYONE a 2x multiplier",
+            "tax_players": "-5 XP for ALL players"
         }
         
+        self.turn_phase[room_code] = "governing"
         self.governance_proposal[room_code] = f"{proposal_type}:{descriptions[proposal_type]}"
         self.governance_votes_yes[room_code] = "0"
         self.governance_votes_no[room_code] = "0"
         self.governance_active[room_code] = True
         
-        # Reset all player votes
-        players_str = self.players_list.get(room_code)
-        if players_str:
-            for p in players_str.split(','):
-                vote_key = f"{room_code}:{p.lower()}"
-                self.governance_player_voted[vote_key] = False
-    
+        # Everyone except proposer needs to vote
+        voters = [p.lower() for p in players if p.lower() != player.as_hex.lower()]
+        self.pending_governance_voters[room_code] = ",".join(voters)
+        
+        # Proposer automatically votes YES
+        self.governance_votes_yes[room_code] = "1"
+        self._add_to_log(room_code, f"{player.as_hex[:6]} proposed: {descriptions[proposal_type]}")
+        
+        # If no voters (i.e. single player game), execute instantly
+        if len(voters) == 0:
+            self.execute_governance(room_code)
+
     @gl.public.write
-    def vote_on_proposal(self, room_code: str, vote_yes: bool) -> None:
+    def vote_on_proposal(self, room_code: str, action: str) -> None:
         """Vote on active governance proposal"""
-        player = gl.message.sender_address
-        player = gl.message.sender_address
-        key = f"{room_code}:{player.as_hex.lower()}"
+        player = gl.message.sender_address.as_hex.lower()
         
-        in_room = self.player_in_room.get(key)
-        if not in_room:
-            raise Exception("Not in room")
-        
+        phase = self.turn_phase.get(room_code)
+        if phase != "governing": raise Exception("No active governance phase")
+            
         active = self.governance_active.get(room_code)
-        if not active:
-            raise Exception("No active proposal")
+        if not active: raise Exception("No active proposal")
+
+        pending_str = self.pending_governance_voters.get(room_code) or ""
+        pending_voters = pending_str.split(',') if pending_str else []
         
-        already_voted = self.governance_player_voted.get(key)
-        if already_voted:
-            raise Exception("Already voted")
+        if player not in pending_voters:
+            raise Exception("Already voted or not eligible")
+            
+        pending_voters.remove(player)
+        self.pending_governance_voters[room_code] = ",".join(pending_voters)
         
-        self.governance_player_voted[key] = True
-        
-        if vote_yes:
+        if action == "approve":
             yes_count = int(self.governance_votes_yes.get(room_code) or "0")
             self.governance_votes_yes[room_code] = str(yes_count + 1)
-        else:
+            self._add_to_log(room_code, f"{player[:6]} voted YES")
+        elif action == "reject":
             no_count = int(self.governance_votes_no.get(room_code) or "0")
             self.governance_votes_no[room_code] = str(no_count + 1)
+            self._add_to_log(room_code, f"{player[:6]} voted NO")
+        elif action == "timeout":
+            # Count timeout as a reject
+            no_count = int(self.governance_votes_no.get(room_code) or "0")
+            self.governance_votes_no[room_code] = str(no_count + 1)
+            self._add_to_log(room_code, f"{player[:6]} timed out (abstained)")
+        else:
+            raise Exception("Invalid action")
         
-        # Award 2 XP for voting
-        current_xp = int(self.player_xp.get(key) or "0")
-        self.player_xp[key] = str(current_xp + 2)
-        
-        self._check_winners(room_code)
-    
-    @gl.public.write
+        if len(pending_voters) == 0:
+            self.execute_governance(room_code)
+
     def execute_governance(self, room_code: str) -> None:
         """Execute governance proposal if it passed"""
-        active = self.governance_active.get(room_code)
-        if not active:
-            raise Exception("No active proposal")
+        self.governance_active[room_code] = False
+        self.turn_phase[room_code] = "finishing"
         
         yes_votes = int(self.governance_votes_yes.get(room_code) or "0")
         no_votes = int(self.governance_votes_no.get(room_code) or "0")
         
         if yes_votes <= no_votes:
-            self.governance_active[room_code] = False
+            self._add_to_log(room_code, f"Proposal FAILED ({yes_votes} Yes / {no_votes} No).")
+            self._check_winners(room_code)
             return
-        
-        # Proposal passed - execute it
-        proposal = self.governance_proposal.get(room_code)
-        if not proposal:
-            return
+            
+        # Passed
+        self._add_to_log(room_code, f"Proposal PASSED! ({yes_votes} Yes / {no_votes} No).")
+        proposal = self.governance_proposal.get(room_code) or ""
+        if not proposal: return
         
         proposal_type = proposal.split(':')[0]
         players_str = self.players_list.get(room_code)
+        if not players_str: return
         
-        if proposal_type == "shield_all" and players_str:
-            for player_addr in players_str.split(','):
-                key = f"{room_code}:{player_addr.lower()}"
+        for player_addr in players_str.split(','):
+            key = f"{room_code}:{player_addr.lower()}"
+            if proposal_type == "shield_all":
                 shields = int(self.player_shields.get(key) or "0")
                 self.player_shields[key] = str(shields + 1)
-        
-        # Note: double_xp and extra_turn would need to be handled in game logic
-        
-        self.governance_active[room_code] = False
+            elif proposal_type == "group_xp":
+                xp = int(self.player_xp.get(key) or "0")
+                self.player_xp[key] = str(xp + 5)
+            elif proposal_type == "tax_players":
+                xp = int(self.player_xp.get(key) or "0")
+                self.player_xp[key] = str(max(0, xp - 5))
+            elif proposal_type == "burn_shields":
+                self.player_shields[key] = "0"
+            elif proposal_type == "strip_multipliers":
+                self.player_multiplier[key] = "0"
+                self.turn_active_mult[room_code] = "1"
+            elif proposal_type == "grant_multipliers":
+                mults = int(self.player_multiplier.get(key) or "0")
+                self.player_multiplier[key] = str(mults + 1)
+
+        self._check_winners(room_code)
     
     # View functions for leaderboards
     @gl.public.view
@@ -787,8 +836,20 @@ class GenBlocks(gl.Contract):
     @gl.public.view
     def get_player_multiplier(self, room_code: str, player: str) -> bool:
         key = f"{room_code}:{player.lower()}"
-        multiplier = self.player_multiplier.get(key)
-        return multiplier if multiplier is not None else False
+        mult = int(self.player_multiplier.get(key) or "0")
+        
+        # Check if it's currently their turn and active
+        players_str = self.players_list.get(room_code)
+        if players_str:
+            players = players_str.split(',')
+            turn_index = int(self.current_turn.get(room_code) or "0")
+            current_player = players[turn_index % len(players)]
+            if current_player.lower() == player.lower():
+                active_mult = self.turn_active_mult.get(room_code)
+                if active_mult == "2":
+                    return True
+                    
+        return mult > 0
     
     @gl.public.view
     def get_all_players(self, room_code: str) -> str:
@@ -812,6 +873,17 @@ class GenBlocks(gl.Contract):
         turn_idx = self.current_turn.get(room_code) or "0"
         start_time = self.turn_start_time.get(room_code) or "0"
         phase = self.turn_phase.get(room_code) or "rolling"
+        pending_target = self.pending_steal_target.get(room_code) or "none"
+        pending_attacker = self.pending_steal_attacker.get(room_code) or "none"
+        auction_bid = self.auction_highest_bid.get(room_code) or "0"
+        auction_bidder = self.auction_highest_bidder.get(room_code) or "none"
+        auction_turn = self.auction_turn_index.get(room_code) or "0"
+        auction_passed = self.auction_passed.get(room_code) or ""
+        gov_active = "1" if self.governance_active.get(room_code) else "0"
+        gov_prop = self.governance_proposal.get(room_code) or ""
+        gov_yes = self.governance_votes_yes.get(room_code) or "0"
+        gov_no = self.governance_votes_no.get(room_code) or "0"
+        gov_voters = self.pending_governance_voters.get(room_code) or ""
         
         results = []
         for addr in players_str.split(','):
@@ -820,13 +892,22 @@ class GenBlocks(gl.Contract):
             pos = self.player_position.get(key) or "0"
             shields = self.player_shields.get(key) or "0"
             combo = self.player_combo.get(key) or "0"
-            mult = "1" if self.player_multiplier.get(key) else "0"
+            
+            # Determine visual multiplier flag
+            mult_val = int(self.player_multiplier.get(key) or "0")
+            is_mult = "1" if mult_val > 0 else "0"
+            
+            turn_index = int(self.current_turn.get(room_code) or "0")
+            current_player = players_str.split(',')[turn_index % len(players_str.split(','))]
+            if current_player.lower() == addr.lower() and self.turn_active_mult.get(room_code) == "2":
+                is_mult = "1"
+            
             elim = "1" if self.player_eliminated.get(key) == "true" else "0"
             roll = self.last_dice_roll.get(key) or "0"
-            results.append(f"{addr.lower()}:{xp}:{pos}:{shields}:{combo}:{mult}:{elim}:{roll}")
+            results.append(f"{addr.lower()}:{xp}:{pos}:{shields}:{combo}:{is_mult}:{elim}:{roll}")
         
         players_data = "|".join(results)
-        return f"{turn_idx};{start_time};{phase};{players_data}"
+        return f"{turn_idx};{start_time};{phase};{players_data};{pending_target};{pending_attacker};{auction_bid};{auction_bidder};{auction_turn};{auction_passed};{gov_active};{gov_prop};{gov_yes};{gov_no};{gov_voters}"
 
     @gl.public.view
     def get_active_room(self, player_addr: str) -> str:
@@ -927,19 +1008,19 @@ class GenBlocks(gl.Contract):
         
         current_xp = int(self.player_xp.get(key) or "0")
         current_combo = int(self.player_combo.get(key) or "0")
-        has_multiplier = self.player_multiplier.get(key) or False
         
         base_xp = 6
-        multiplier = 2 if has_multiplier else 1
-        xp_gain = base_xp * multiplier
+        active_mult = int(self.turn_active_mult.get(room_code) or "1")
+        xp_gain = base_xp * active_mult
         
         self.player_xp[key] = str(current_xp + xp_gain)
         self.player_combo[key] = str(current_combo + 1)
         self._add_to_log(room_code, f"{player.as_hex[:6]} built (+{xp_gain} XP)")
         
         if current_combo + 1 >= 3:
-            self.player_multiplier[key] = True
-            self._add_to_log(room_code, f"🔥 {player.as_hex[:6]} 2X ACTIVE!")
+            mults = int(self.player_multiplier.get(key) or "0")
+            self.player_multiplier[key] = str(mults + 1)
+            self._add_to_log(room_code, f"🔥 {player.as_hex[:6]} 2X EARNED!")
             
         self._check_winners(room_code)
     
@@ -1042,8 +1123,9 @@ class GenBlocks(gl.Contract):
             self.player_shields[key] = str(current_shields + 1)
             self._add_to_log(room_code, "Lucky: Shield Found!")
         elif reward == 3:
-            self.player_multiplier[key] = True
-            self._add_to_log(room_code, "Lucky: 2X Multiplier!")
+            mults = int(self.player_multiplier.get(key) or "0")
+            self.player_multiplier[key] = str(mults + 1)
+            self._add_to_log(room_code, f"Lucky: 2X Multiplier Earned!")
         else:
             self._add_to_log(room_code, "Lucky: No Reward")
             
@@ -1071,48 +1153,152 @@ class GenBlocks(gl.Contract):
         target_in_room = self.player_in_room.get(target_key)
         if not target_in_room:
             raise Exception("Target not in room")
-        
-        target_shields = int(self.player_shields.get(target_key) or "0")
-        
-        import random
-        self._seed_random(room_code, f"steal:{target_player}")
-        target_blocks = random.random() > 0.5
-        
-        if target_blocks and target_shields > 0:
-            self.player_shields[target_key] = str(target_shields - 1)
-            self._add_to_log(room_code, f"Shield blocked {player.as_hex[:6]}!")
-        elif target_blocks and target_shields == 0:
-            target_xp = int(self.player_xp.get(target_key) or "0")
-            penalty = 7
-            self.player_xp[target_key] = str(max(0, target_xp - penalty))
-            self._add_to_log(room_code, f"Blocked {player.as_hex[:6]} (Penalty: -{penalty} XP)")
-        else:
-            target_xp = int(self.player_xp.get(target_key) or "0")
-            player_xp = int(self.player_xp.get(key) or "0")
             
+        # Transition to steal response phase
+        self.turn_phase[room_code] = "stealing_response"
+        self.pending_steal_target[room_code] = target_player.lower()
+        self.pending_steal_attacker[room_code] = player.as_hex.lower()
+        
+        # We cannot use time.time() directly due to determinism, we have to rely on frontend enforcing the 40s wait
+        # Alternatively, we just let frontend submit "timeout" as an action.
+
+        self._add_to_log(room_code, f"{player.as_hex[:6]} initiated steal on {target_player[:6]}")
+
+    @gl.public.write
+    def respond_to_steal(self, room_code: str, action: str) -> None:
+        player = gl.message.sender_address
+        target_lower = player.as_hex.lower()
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "stealing_response":
+            raise Exception("No active steal response phase")
+            
+        pending_target = self.pending_steal_target.get(room_code)
+        if pending_target != target_lower:
+            raise Exception("You are not the steal target")
+            
+        pending_attacker = self.pending_steal_attacker.get(room_code)
+        if not pending_attacker:
+            raise Exception("No attacker found")
+            
+        target_key = f"{room_code}:{target_lower}"
+        attacker_key = f"{room_code}:{pending_attacker}"
+        
+        if action == "timeout":
+            # Auto-allow the steal if the user doesn't respond
+            target_xp = int(self.player_xp.get(target_key) or "0")
+            attacker_xp = int(self.player_xp.get(attacker_key) or "0")
             steal_amount = min(5, target_xp)
             self.player_xp[target_key] = str(target_xp - steal_amount)
-            self.player_xp[key] = str(player_xp + steal_amount)
-            self._add_to_log(room_code, f"{player.as_hex[:6]} stole {steal_amount} XP!")
+            self.player_xp[attacker_key] = str(attacker_xp + steal_amount)
+            self._add_to_log(room_code, f"{target_lower[:6]} timed out. {pending_attacker[:6]} stole {steal_amount} XP!")
             
+        elif action == "shield":
+            shields = int(self.player_shields.get(target_key) or "0")
+            if shields <= 0:
+                raise Exception("No shields available")
+            self.player_shields[target_key] = str(shields - 1)
+            self._add_to_log(room_code, f"{target_lower[:6]} blocked steal with shield!")
+            
+        elif action == "forfeit":
+            target_xp = int(self.player_xp.get(target_key) or "0")
+            
+            base_penalty = 7
+            active_mult = int(self.turn_active_mult.get(room_code) or "1")
+            penalty = base_penalty * active_mult
+            
+            self.player_xp[target_key] = str(max(0, target_xp - penalty))
+            self._add_to_log(room_code, f"{target_lower[:6]} forfeited {penalty} XP to block steal!")
+            
+        elif action == "allow":
+            target_xp = int(self.player_xp.get(target_key) or "0")
+            attacker_xp = int(self.player_xp.get(attacker_key) or "0")
+            steal_amount = min(5, target_xp)
+            self.player_xp[target_key] = str(target_xp - steal_amount)
+            self.player_xp[attacker_key] = str(attacker_xp + steal_amount)
+            self._add_to_log(room_code, f"{pending_attacker[:6]} stole {steal_amount} XP!")
+            
+        else:
+            raise Exception("Invalid action")
+            
+        # Finish steal phase
+        self.turn_phase[room_code] = "finishing"
+        self.pending_steal_target[room_code] = ""
+        self.pending_steal_attacker[room_code] = ""
+        
         self._check_winners(room_code)
-    
+
     @gl.public.write
-    def handle_governance_block(self, room_code: str, vote: str) -> None:
+    def handle_governance_block(self, room_code: str, proposal_type: str) -> None:
         """Landing on governance block - create proposal or vote"""
-        # This now creates a proposal - voting happens separately
-        self.create_governance_proposal(room_code, vote)
+        self.create_governance_proposal(room_code, proposal_type)
     
+    def _finish_auction(self, room_code: str) -> None:
+        winner = self.auction_highest_bidder.get(room_code) or ""
+        if winner and winner != "none":
+            bid = int(self.auction_highest_bid.get(room_code) or "0")
+            key = f"{room_code}:{winner}"
+            
+            player_xp = int(self.player_xp.get(key) or "0")
+            self.player_xp[key] = str(max(0, player_xp - bid))
+            
+            mults = int(self.player_multiplier.get(key) or "0")
+            self.player_multiplier[key] = str(mults + 1)
+            
+            self._add_to_log(room_code, f"Auction won by {winner[:6]} for {bid} XP!")
+        else:
+            self._add_to_log(room_code, f"Auction ended with no bids.")
+            
+        self.turn_phase[room_code] = "finishing"
+        self.auction_passed[room_code] = ""
+        self._check_winners(room_code)
+        
+    def _next_auction_bidder(self, room_code: str) -> None:
+        players_str = self.players_list.get(room_code)
+        if not players_str: return
+        players = players_str.split(',')
+        
+        passed_str = self.auction_passed.get(room_code) or ""
+        passed_list = passed_str.split(',') if passed_str else []
+        
+        current_idx = int(self.auction_turn_index.get(room_code) or "0")
+        start_idx = current_idx
+        
+        highest_bidder = self.auction_highest_bidder.get(room_code) or ""
+        
+        while True:
+            current_idx = (current_idx + 1) % len(players)
+            p = players[current_idx].lower()
+            key = f"{room_code}:{p}"
+            
+            eliminated = self.player_eliminated.get(key) == "true"
+            has_passed = p in passed_list
+            has_xp = int(self.player_xp.get(key) or "0") >= 2
+            
+            if p == highest_bidder:
+                self._finish_auction(room_code)
+                return
+
+            if not eliminated and not has_passed and has_xp:
+                self.auction_turn_index[room_code] = str(current_idx)
+                return
+
+            if not has_xp and p not in passed_list and not eliminated:
+                passed_list.append(p)
+                self.auction_passed[room_code] = ",".join(passed_list)
+            
+            if current_idx == start_idx:
+                self._finish_auction(room_code)
+                return
+
     @gl.public.write
-    def handle_auction_block(self, room_code: str, bid_amount: str) -> None:
+    def handle_auction_block(self, room_code: str) -> None:
         player = gl.message.sender_address
         key = f"{room_code}:{player.as_hex.lower()}"
         
         in_room = self.player_in_room.get(key)
-        if not in_room:
-            raise Exception("Not in room")
+        if not in_room: raise Exception("Not in room")
 
-        # Validate turn ownership
         players_str = self.players_list.get(room_code)
         players = players_str.split(',')
         turn_index = int(self.current_turn.get(room_code) or "0")
@@ -1121,26 +1307,71 @@ class GenBlocks(gl.Contract):
         if current_player.lower() != player.as_hex.lower():
             raise Exception("Not your turn")
         
-        player_xp = int(self.player_xp.get(key) or "0")
-        bid = int(bid_amount)
+        self.turn_phase[room_code] = "auctioning"
+        self.auction_passed[room_code] = ""
+        self.auction_highest_bid[room_code] = "0"
+        self.auction_highest_bidder[room_code] = ""
+        self.auction_turn_index[room_code] = str(turn_index)
         
-        if bid <= 0:
-            raise Exception("Bid must be positive")
-        
-        if bid > player_xp:
-            raise Exception("Not enough XP to bid")
-        
-        current_highest_bid = int(self.auction_highest_bid.get(room_code) or "0")
-        
-        if bid > current_highest_bid:
-            self.auction_highest_bid[room_code] = bid_amount
-            self.auction_highest_bidder[room_code] = player.as_hex
+        p = players[turn_index].lower()
+        p_key = f"{room_code}:{p}"
+        elim = self.player_eliminated.get(p_key) == "true"
+        has_xp = int(self.player_xp.get(p_key) or "0") >= 2
+        if elim or not has_xp:
+            self._next_auction_bidder(room_code)
             
-            self.player_xp[key] = str(player_xp - bid)
-            self.player_multiplier[key] = True
-            self._add_to_log(room_code, f"New High Bid: {bid} XP!")
-        else:
-            raise Exception("Bid too low")
+        self._add_to_log(room_code, f"Auction sequence started.")
+
+    @gl.public.write
+    def respond_to_auction(self, room_code: str, action: str, bid_amount: str = "0") -> None:
+        player = gl.message.sender_address.as_hex.lower()
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "auctioning":
+            raise Exception("No active auction")
+            
+        players_str = self.players_list.get(room_code)
+        players = players_str.split(',')
+        auc_turn_index = int(self.auction_turn_index.get(room_code) or "0")
+        current_bidder = players[auc_turn_index].lower()
+        
+        if player != current_bidder:
+            raise Exception("Not your turn to bid")
+            
+        if action == "pass" or action == "timeout":
+            passed_str = self.auction_passed.get(room_code) or ""
+            passed_list = passed_str.split(',') if passed_str else []
+            if player not in passed_list:
+                passed_list.append(player)
+                self.auction_passed[room_code] = ",".join(passed_list)
+                if action == "timeout":
+                    self._add_to_log(room_code, f"{player[:6]} timed out.")
+                else:    
+                    self._add_to_log(room_code, f"{player[:6]} passed.")
+            self._next_auction_bidder(room_code)
+            return
+            
+        if action == "bid":
+            bid = int(bid_amount)
+            current_highest = int(self.auction_highest_bid.get(room_code) or "0")
+            
+            min_bid = max(2, current_highest + 1)
+            if bid < min_bid:
+                raise Exception(f"Bid too low. Minimum is {min_bid}")
+                
+            key = f"{room_code}:{player}"
+            player_xp = int(self.player_xp.get(key) or "0")
+            if bid > player_xp:
+                raise Exception("Not enough XP")
+                
+            self.auction_highest_bid[room_code] = str(bid)
+            self.auction_highest_bidder[room_code] = player
+            self._add_to_log(room_code, f"{player[:6]} bids {bid} XP.")
+            
+            self._next_auction_bidder(room_code)
+            return
+            
+        raise Exception("Invalid action")
 
     @gl.public.write
     def handle_end_block(self, room_code: str) -> None:
@@ -1179,7 +1410,11 @@ class GenBlocks(gl.Contract):
         if current_player.lower() != player.as_hex.lower():
             raise Exception("Not your turn")
         current_xp = int(self.player_xp.get(key) or "0")
-        penalty = 2
+        
+        base_penalty = 2
+        active_mult = int(self.turn_active_mult.get(room_code) or "1")
+        penalty = base_penalty * active_mult
+        
         self.player_xp[key] = str(max(0, current_xp - penalty))
         self._add_to_log(room_code, f"Danger: {player.as_hex[:6]} lost {penalty} XP")
         self._check_winners(room_code)
@@ -1198,7 +1433,11 @@ class GenBlocks(gl.Contract):
         if current_player.lower() != player.as_hex.lower():
             raise Exception("Not your turn")
         current_xp = int(self.player_xp.get(key) or "0")
-        penalty = 5
+        
+        base_penalty = 5
+        active_mult = int(self.turn_active_mult.get(room_code) or "1")
+        penalty = base_penalty * active_mult
+        
         self.player_xp[key] = str(max(0, current_xp - penalty))
         self._add_to_log(room_code, f"HAZARD: {player.as_hex[:6]} lost {penalty} XP")
         self._check_winners(room_code)
