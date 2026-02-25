@@ -269,12 +269,21 @@ class GenBlocks(gl.Contract):
                 else:
                     # Game hasn't started — fully remove
                     players.remove(player_addr)
-                    self.players_list[room_code] = ','.join(players)
-
-                    count_num = int(self.room_count.get(room_code) or "1")
-                    self.room_count[room_code] = str(max(0, count_num - 1))
+                    remaining = [p for p in players if p]
 
                     self.player_in_room[key] = False
+                    count_num = int(self.room_count.get(room_code) or "1")
+                    
+                    if remaining:
+                        # Still players left — update list and count
+                        self.players_list[room_code] = ','.join(remaining)
+                        self.room_count[room_code] = str(max(0, count_num - 1))
+                    else:
+                        # Room is empty — delete it so the code can be reused
+                        self.players_list[room_code] = ""
+                        self.room_count[room_code] = "0"
+                        self.rooms[room_code] = None  # type: ignore[assignment]
+                        self._add_to_log(room_code, "Room dissolved (all players left)")
 
         # Clear active room
         self.player_active_room[player.as_hex.lower()] = ""

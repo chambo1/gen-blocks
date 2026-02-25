@@ -40,13 +40,7 @@ export default function PlayGame() {
 
   const [isSigned, setIsSigned] = useState(false)
   const [isWrongNetwork, setIsWrongNetwork] = useState(false)
-  const [gameState, setGameState] = useState<'lobby' | 'waiting' | 'playing' | 'finished'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('genblocks_gameState')
-      if (saved === 'playing' || saved === 'waiting') return saved
-    }
-    return 'lobby'
-  })
+  const [gameState, setGameState] = useState<'lobby' | 'waiting' | 'playing' | 'finished'>('lobby')
   const [playerPosition, setPlayerPosition] = useState(0)
   const [playerXP, setPlayerXP] = useState(10)
   const [diceValue, setDiceValue] = useState<number | null>(null)
@@ -197,39 +191,72 @@ export default function PlayGame() {
     return () => clearInterval(interval)
   }, [roomCode, fetchLobbyState, gameState, board.length])
 
-  // NEW: Auto-reconnect effect
+  // Auto-reconnect: on page load, check if the player has an active game and restore state.
+  // Also validates that the room is still alive (not finished) before restoring.
   useEffect(() => {
-    if (!isConnected || !address || roomCode) return
+    if (!isConnected || !address) return
 
     const checkActiveRoom = async () => {
-      // Only check if we are disconnected and not in a room
-      if (roomCode) return
-
       setIsCheckingActiveRoom(true)
       console.log('🔄 Checking for active room...', address)
       try {
-        const activeRoom = await readGenLayerContract('get_active_room', [address])
-        console.log('🔄 Active room result:', activeRoom)
+        // First check the saved room from localStorage
+        const savedRoom = typeof window !== 'undefined' ? localStorage.getItem('genblocks_roomCode') : null
+        const savedState = typeof window !== 'undefined' ? localStorage.getItem('genblocks_gameState') : null
 
-        if (activeRoom && activeRoom !== 'none') {
-          console.log('✅ Reconnecting to:', activeRoom)
-          setRoomCode(activeRoom)
-          // Set to lobby so the polling hooks can fetch the layout and transition to playing safely
-          setGameState('lobby')
-          addLog(`🔄 Reconnected to room: ${activeRoom}`)
-          console.log('[DEBUG] checkActiveRoom setting gameState to lobby for room:', activeRoom)
+        // Try the saved room first (fast path), then fall back to contract query
+        const candidateRoom = savedRoom || (await readGenLayerContract('get_active_room', [address]))
+        console.log('🔄 Candidate room:', candidateRoom)
+
+        if (candidateRoom && candidateRoom !== 'none' && candidateRoom !== '') {
+          // Verify the room is still alive: check if it's not finished
+          const [isFinished, isStarted, playerCount] = await Promise.all([
+            readGenLayerContract('is_room_game_over', [candidateRoom]),
+            readGenLayerContract('is_game_started', [candidateRoom]),
+            readGenLayerContract('get_player_count', [candidateRoom]),
+          ])
+
+          const finished = String(isFinished) === 'FINISHED'
+          const count = parseInt(String(playerCount) || '0')
+
+          if (!finished && count > 0) {
+            console.log('✅ Reconnecting to valid room:', candidateRoom)
+            setRoomCode(candidateRoom)
+            // If game was already started, go to playing; otherwise waiting
+            if (isStarted) {
+              setGameState('playing')
+            } else {
+              setGameState('waiting')
+            }
+            addLog(`🔄 Reconnected to room: ${candidateRoom}`)
+          } else {
+            // Room is dead — clear stale storage and show lobby
+            console.log('[DEBUG] Stale/finished room, clearing and showing lobby')
+            localStorage.removeItem('genblocks_roomCode')
+            localStorage.removeItem('genblocks_gameState')
+            setRoomCode('')
+            setGameState('lobby')
+          }
         } else {
-          console.log('[DEBUG] checkActiveRoom returned none or empty')
+          // No active game — clear any stale state and show lobby
+          localStorage.removeItem('genblocks_roomCode')
+          localStorage.removeItem('genblocks_gameState')
+          setRoomCode('')
+          setGameState('lobby')
+          console.log('[DEBUG] No active room found, showing lobby')
         }
       } catch (error) {
         console.error('Failed to check active room:', error)
+        // On any error, default to lobby
+        setGameState('lobby')
       } finally {
         setIsCheckingActiveRoom(false)
       }
     }
 
     checkActiveRoom()
-  }, [isConnected, address, roomCode, addLog])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, address])
 
   // Board layout fetched in fetchLobbyState now
 
@@ -2099,20 +2126,30 @@ export default function PlayGame() {
                         style={{ fontSize: '0.9rem', padding: '0.5rem 1rem', border: '1px solid #ffbe0b', color: '#ffbe0b' }}
                         onClick={() => {
                           setIsCheckingActiveRoom(true)
-                          // Trigger re-check manually by resetting roomCode if needed, 
-                          // but mainly just running the check logic again
                           const check = async () => {
                             try {
-                              const activeRoom = await readGenLayerContract('get_active_room', [address])
-                              if (activeRoom && activeRoom !== 'none') {
-                                setRoomCode(activeRoom)
-                                setGameState('playing')
-                                addLog(`🔄 Reconnected to room: ${activeRoom}`)
+                              const candidateRoom = await readGenLayerContract('get_active_room', [address])
+                              if (candidateRoom && candidateRoom !== 'none' && candidateRoom !== '') {
+                                const [isFinished, isStarted, playerCount] = await Promise.all([
+                                  readGenLayerContract('is_room_game_over', [candidateRoom]),
+                                  readGenLayerContract('is_game_started', [candidateRoom]),
+                                  readGenLayerContract('get_player_count', [candidateRoom]),
+                                ])
+                                const finished = String(isFinished) === 'FINISHED'
+                                const count = parseInt(String(playerCount) || '0')
+                                if (!finished && count > 0) {
+                                  setRoomCode(candidateRoom)
+                                  setGameState(isStarted ? 'playing' : 'waiting')
+                                  addLog(`🔄 Reconnected to room: ${candidateRoom}`)
+                                } else {
+                                  addLog('❌ That game is already finished or empty.')
+                                }
                               } else {
                                 addLog('❌ No active game found on chain.')
                               }
                             } catch (e) {
                               console.error(e)
+                              addLog('❌ Error checking for active game.')
                             } finally {
                               setIsCheckingActiveRoom(false)
                             }
