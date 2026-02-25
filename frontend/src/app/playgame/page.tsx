@@ -46,6 +46,7 @@ export default function PlayGame() {
   const [diceValue, setDiceValue] = useState<number | null>(null)
   const [isRolling, setIsRolling] = useState(false)
   const [showActionPrompt, setShowActionPrompt] = useState(false)
+  const [actionPerformed, setActionPerformed] = useState(false)
   const [showStealPrompt, setShowStealPrompt] = useState(false)
   const [showChallengePrompt, setShowChallengePrompt] = useState(false)
   const [showAuctionPrompt, setShowAuctionPrompt] = useState(false)
@@ -896,6 +897,7 @@ export default function PlayGame() {
     if (!address || !roomCode || isRolling || board.length === 0 || !isMyTurn) return
 
     setIsRolling(true)
+    setActionPerformed(false) // reset so action buttons reappear for this turn
     setDiceValue(null)
     addLog('🎲 Rolling dice...')
     // Capture XP before roll so we can show delta in turn summary
@@ -1114,6 +1116,7 @@ export default function PlayGame() {
 
     addLog('Building contract on blockchain...')
     setShowActionPrompt(false)
+    setActionPerformed(true)
 
     try {
       const { hash: txHash, wait } = await writeGenLayerContract('handle_build_block', [roomCode], address)
@@ -1122,10 +1125,11 @@ export default function PlayGame() {
 
       await wait()
       addLog('✅ Build confirmed on blockchain!')
-      // XP, combo, multiplier will sync from contract via useReadContract hooks
+      setActionPerformed(false)
     } catch (err: any) {
       console.error('Build failed:', err)
       addLog(`❌ Error: ${err.message || 'Failed to build'}`)
+      setActionPerformed(false)
     }
   }
 
@@ -1171,14 +1175,17 @@ export default function PlayGame() {
 
   const handleStartAuction = async () => {
     if (!address || !roomCode) return
+    setActionPerformed(true)
     try {
       addLog(`💰 Getting ready for auction...`)
       const { wait } = await writeGenLayerContract('handle_auction_block', [roomCode], address)
       await wait()
       addLog(`✅ Auction started!`)
+      setActionPerformed(false)
     } catch (err: any) {
       console.error('Auction start failed:', err)
       addLog(`❌ Error starting auction: ${err.message}`)
+      setActionPerformed(false)
     }
   }
 
@@ -1204,6 +1211,7 @@ export default function PlayGame() {
 
     addLog(`Attempting to steal from ${targetPlayer.name} on blockchain...`)
     setShowStealPrompt(false)
+    setActionPerformed(true)
 
     try {
       const { hash: txHash, wait } = await writeGenLayerContract('handle_steal_block', [roomCode, targetPlayer.address], address)
@@ -1212,24 +1220,28 @@ export default function PlayGame() {
 
       await wait()
       addLog('✅ Steal finalized!')
-      // XP changes will sync from contract via useReadContract hooks
+      setActionPerformed(false)
     } catch (err: any) {
       console.error('Steal failed:', err)
       addLog(`❌ Error: ${err.message || 'Failed to steal'}`)
+      setActionPerformed(false)
     }
   }
 
   const handleProposeGovernance = async (proposalType: string) => {
     if (!address || !roomCode) return
+    setActionPerformed(true)
+    setShowActionPrompt(false)
     try {
       addLog(`🗳️ Starting governance proposal...`)
-      setShowActionPrompt(false)
       const { wait } = await writeGenLayerContract('handle_governance_block', [roomCode, proposalType], address)
       await wait()
       addLog(`✅ Governance proposal created!`)
+      setActionPerformed(false)
     } catch (err: any) {
       console.error('Governance start failed:', err)
       addLog(`❌ Error starting governance: ${err.message}`)
+      setActionPerformed(false)
       setShowActionPrompt(true)
     }
   }
@@ -2684,50 +2696,68 @@ export default function PlayGame() {
                                 paddingTop: '1.5rem',
                                 marginBottom: '1.5rem'
                               }}>
-                                <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', textAlign: 'center', marginBottom: '1rem' }}>
-                                  {currentBlock.type === 'build' && `Build an Intelligent Contract! ${hasMultiplier ? '⚡ 2x Multiplier Active!' : ''}`}
-                                  {currentBlock.type === 'steal' && 'Choose a player to steal from:'}
-                                  {currentBlock.type === 'auction' && `Start an auction to win a 2x multiplier!`}
-                                  {currentBlock.type === 'governance' && 'Choose a governance proposal to enforce!'}
-                                </p>
-
-                                {currentBlock.type === 'build' && (
-                                  <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                    <button className="action-button" onClick={handleBuildContract}>
-                                      🟩 Build Contract (+{hasMultiplier ? 12 : 6} XP)
-                                    </button>
+                                {actionPerformed ? (
+                                  // Action already submitted — show pending indicator
+                                  <div style={{ textAlign: 'center', padding: '1rem' }}>
+                                    <div className="loader" style={{ margin: '0 auto 1rem' }} />
+                                    <p style={{ color: '#00fff9', fontSize: '0.9rem' }}>⏳ Processing action on chain…</p>
+                                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>You can finish your turn once complete.</p>
                                   </div>
-                                )}
+                                ) : (
+                                  <>
+                                    <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', textAlign: 'center', marginBottom: '1rem' }}>
+                                      {currentBlock.type === 'build' && `Build an Intelligent Contract! ${hasMultiplier ? '⚡ 2x Multiplier Active!' : ''}`}
+                                      {currentBlock.type === 'steal' && 'Choose a player to steal from:'}
+                                      {currentBlock.type === 'auction' && 'Start an auction to win a 2x multiplier!'}
+                                      {currentBlock.type === 'governance' && 'Choose a governance proposal to enforce!'}
+                                    </p>
 
-                                {currentBlock.type === 'steal' && (
-                                  <div className="player-list">
-                                    {otherPlayers.map((player, idx) => (
-                                      <div key={idx} className="player-card" onClick={() => handleSteal(player)}
-                                        style={{ cursor: 'pointer' }}>
-                                        <div className="player-name">{player.name}</div>
-                                        <div className="player-stats">XP: {player.xp} | Shields: {player.shields} 🛡️</div>
+                                    {currentBlock.type === 'build' && (
+                                      <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                        <button className="action-button" onClick={handleBuildContract}>
+                                          🟩 Build Contract (+{hasMultiplier ? 12 : 6} XP)
+                                        </button>
                                       </div>
-                                    ))}
-                                  </div>
-                                )}
+                                    )}
 
-                                {currentBlock.type === 'auction' && (
-                                  <div className="action-choices">
-                                    <button className="action-button warning" onClick={() => handleStartAuction()}>
-                                      💰 Start Auction!
-                                    </button>
-                                  </div>
-                                )}
+                                    {currentBlock.type === 'steal' && (
+                                      <div className="player-list">
+                                        {otherPlayers.map((player, idx) => (
+                                          <div key={idx} className="player-card" onClick={() => handleSteal(player)}
+                                            style={{ cursor: 'pointer' }}>
+                                            <div className="player-name">{player.name}</div>
+                                            <div className="player-stats">XP: {player.xp} | Shields: {player.shields} 🛡️</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
 
-                                {currentBlock.type === 'governance' && (
-                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.8rem' }}>
-                                    <button className="action-button default" onClick={() => handleProposeGovernance('group_xp')}>🌟 Universal Stimulus (+5 XP Everyone)</button>
-                                    <button className="action-button default" onClick={() => handleProposeGovernance('shield_all')}>🛡️ Arm the Treasury (+1 Shield Everyone)</button>
-                                    <button className="action-button warning" onClick={() => handleProposeGovernance('grant_multipliers')}>⚡ Power Surge (2x Multipliers Everyone)</button>
-                                    <button className="action-button warning" style={{ border: '1px solid #ef4444', color: '#ef4444' }} onClick={() => handleProposeGovernance('burn_shields')}>🔥 Scorched Earth (Destroy All Shields)</button>
-                                    <button className="action-button warning" style={{ border: '1px solid #ef4444', color: '#ef4444' }} onClick={() => handleProposeGovernance('strip_multipliers')}>🔻 Power Drain (Remove All 2x Multipliers)</button>
-                                    <button className="action-button secondary" style={{ border: '1px solid #ef4444', color: '#ef4444' }} onClick={() => handleProposeGovernance('tax_players')}>💸 Global Tax (-5 XP Everyone)</button>
-                                  </div>
+                                    {currentBlock.type === 'auction' && (
+                                      <div className="action-choices">
+                                        <button className="action-button warning" onClick={() => handleStartAuction()}>
+                                          💰 Start Auction!
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {currentBlock.type === 'governance' && (
+                                      <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: '1fr',
+                                        gap: '0.8rem',
+                                        maxHeight: '260px',
+                                        overflowY: 'auto',
+                                        paddingRight: '4px'
+                                      }}>
+                                        <button className="action-button default" onClick={() => handleProposeGovernance('group_xp')}>🌟 Universal Stimulus (+5 XP Everyone)</button>
+                                        <button className="action-button default" onClick={() => handleProposeGovernance('shield_all')}>🛡️ Arm the Treasury (+1 Shield Everyone)</button>
+                                        <button className="action-button warning" onClick={() => handleProposeGovernance('grant_multipliers')}>⚡ Power Surge (2x Multipliers Everyone)</button>
+                                        <button className="action-button warning" style={{ border: '1px solid #ef4444', color: '#ef4444' }} onClick={() => handleProposeGovernance('burn_shields')}>🔥 Scorched Earth (Destroy All Shields)</button>
+                                        <button className="action-button warning" style={{ border: '1px solid #ef4444', color: '#ef4444' }} onClick={() => handleProposeGovernance('strip_multipliers')}>🔻 Power Drain (Remove All 2x Multipliers)</button>
+                                        <button className="action-button secondary" style={{ border: '1px solid #ef4444', color: '#ef4444' }} onClick={() => handleProposeGovernance('tax_players')}>💸 Global Tax (-5 XP Everyone)</button>
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             )
@@ -2739,7 +2769,7 @@ export default function PlayGame() {
                               className="action-button"
                               style={{ width: '100%', padding: '1rem', fontSize: '1rem', opacity: (isStealingResponse || isAuctioning || isGoverning) ? 0.5 : 1 }}
                               onClick={handleFinishTurn}
-                              disabled={isStealingResponse || isAuctioning || isGoverning || (currentBlock ? ['build', 'steal', 'auction', 'governance'].includes(currentBlock.type) && showActionPrompt : false)}
+                              disabled={isStealingResponse || isAuctioning || isGoverning || actionPerformed || (currentBlock ? ['build', 'steal', 'auction', 'governance'].includes(currentBlock.type) && showActionPrompt : false)}
                             >
                               ✅ Finish Turn
                             </button>
