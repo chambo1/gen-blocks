@@ -89,8 +89,6 @@ class GenBlocks(gl.Contract):
     def __init__(self):
         self.owner = gl.message.sender_address
         self.game_counter = "0"
-        self.turn_active_mult = gl.TreeMap()
-        self.player_multiplier = gl.TreeMap()
     
     def _get_current_week_id(self) -> str:
         """Get current week ID (weeks since epoch)"""
