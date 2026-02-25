@@ -580,6 +580,12 @@ export default function PlayGame() {
           }
         }
 
+        // 4. Process Game Over
+        if (gameOver === 'FINISHED' && gameState === 'playing') {
+          setGameState('finished')
+          addLog('🏁 Game finished! Checking winner...')
+        }
+
       } catch (error) {
         console.error('Mega-poll failed:', error)
       }
@@ -2754,28 +2760,35 @@ export default function PlayGame() {
                 </>
               )}
 
-              {gameState === 'finished' && (
-                <div className="lobby-container">
-                  <h2 className="lobby-title" style={{ color: '#4CAF50' }}>🏁 Game Finished</h2>
-                  <p style={{ fontSize: '1.2rem', margin: '1rem 0' }}>
-                    Someone reached 100 XP and won the match!
-                  </p>
+              {gameState === 'finished' && (() => {
+                const sortedPlayers = [
+                  { address: address || '0x...', name: 'You', xp: playerXP },
+                  ...otherPlayers
+                ].sort((a, b) => b.xp - a.xp);
 
-                  <div className="ranking-list" style={{
-                    width: '100%',
-                    maxWidth: '500px',
-                    margin: '2rem auto',
-                    background: 'rgba(255,255,255,0.05)',
-                    borderRadius: '12px',
-                    padding: '1rem'
-                  }}>
-                    <h3 style={{ marginBottom: '1.5rem', fontFamily: 'Orbitron', color: '#ffbe0b' }}>🏆 Final Rankings</h3>
-                    {[
-                      { address: address || '0x...', name: 'You', xp: playerXP },
-                      ...otherPlayers
-                    ]
-                      .sort((a, b) => b.xp - a.xp)
-                      .map((p, idx) => (
+                const winnerName = sortedPlayers.length > 0 ? sortedPlayers[0].name : 'Someone';
+
+                return (
+                  <div className="lobby-container">
+                    <h2 className="lobby-title" style={{ color: '#4CAF50' }}>🏁 Game Finished</h2>
+                    <p style={{ fontSize: '1.2rem', margin: '1rem 0' }}>
+                      {winnerName === 'You' ? (
+                        <span style={{ color: '#ffbe0b', fontWeight: 'bold' }}>🎉 YOU won the match! 🎉</span>
+                      ) : (
+                        <span><span style={{ color: '#ffbe0b', fontWeight: 'bold' }}>{winnerName}</span> won the match!</span>
+                      )}
+                    </p>
+
+                    <div className="ranking-list" style={{
+                      width: '100%',
+                      maxWidth: '500px',
+                      margin: '2rem auto',
+                      background: 'rgba(255,255,255,0.05)',
+                      borderRadius: '12px',
+                      padding: '1rem'
+                    }}>
+                      <h3 style={{ marginBottom: '1.5rem', fontFamily: 'Orbitron', color: '#ffbe0b' }}>🏆 Final Rankings</h3>
+                      {sortedPlayers.map((p, idx) => (
                         <div key={idx} style={{
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -2790,27 +2803,30 @@ export default function PlayGame() {
                             <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: idx === 0 ? '#ffbe0b' : '#00fff9' }}>
                               #{idx + 1}
                             </span>
-                            <span style={{ fontSize: '1.1rem' }}>{p.name}</span>
+                            <span style={{ fontSize: '1.1rem', fontWeight: idx === 0 ? 'bold' : 'normal', color: p.name === 'You' ? '#00fff9' : '#fff' }}>
+                              {p.name} {idx === 0 ? '👑' : ''}
+                            </span>
                           </div>
                           <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{p.xp} XP</span>
                         </div>
                       ))}
+                    </div>
+
+                    <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: '2.5rem' }}>
+                      Results have been recorded on the global leaderboard.
+                    </p>
+
+                    <button className="action-button" onClick={() => {
+                      setGameState('lobby')
+                      setRoomCode('')
+                      setBoard([])
+                      setGameLog([])
+                    }}>
+                      🏠 Back to Lobby
+                    </button>
                   </div>
-
-                  <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: '2.5rem' }}>
-                    Results have been recorded on the global leaderboard.
-                  </p>
-
-                  <button className="action-button" onClick={() => {
-                    setGameState('lobby')
-                    setRoomCode('')
-                    setBoard([])
-                    setGameLog([])
-                  }}>
-                    🏠 Back to Lobby
-                  </button>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </>
         )}
