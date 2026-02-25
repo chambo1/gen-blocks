@@ -2392,9 +2392,9 @@ export default function PlayGame() {
                       if (!landedBlock) return null
                       switch (landedBlock.type) {
                         case 'build': return { icon: '🟩', action: 'Built a contract', xp: `+${currentPlayer?.hasMultiplier ? 12 : 6} XP`, color: '#4CAF50' }
-                        case 'bonus': return { icon: '🟨', action: 'Bonus collected', xp: '+5 XP or Shield', color: '#ffbe0b' }
-                        case 'mystery': return { icon: '⭐', action: 'Mystery reward', xp: 'Random XP/Shield', color: '#a855f7' }
-                        case 'lucky': return { icon: '🎁', action: 'Lucky bonus', xp: '+15 XP, Shield, or 2X', color: '#00fff9' }
+                        case 'bonus': return { icon: '🟨', action: 'Bonus collected', xp: `+${currentPlayer?.hasMultiplier ? 10 : 5} XP or Shield`, color: '#ffbe0b' }
+                        case 'mystery': return { icon: '⭐', action: 'Mystery reward', xp: `Random XP/Shield${currentPlayer?.hasMultiplier ? ' (⚡ 2X Active!)' : ''}`, color: '#a855f7' }
+                        case 'lucky': return { icon: '🎁', action: 'Lucky bonus', xp: `+${currentPlayer?.hasMultiplier ? 30 : 15} XP, Shield, or 2X`, color: '#00fff9' }
                         case 'steal': return { icon: '🏴\u200d☠️', action: 'Stealing from a player', xp: '+5 XP stolen', color: '#ff006e' }
                         case 'auction': return { icon: '💰', action: 'Auction block', xp: 'Bid for 2x multiplier', color: '#ff9500' }
                         case 'governance': return { icon: '🟥', action: 'Governance vote', xp: 'Community decision', color: '#ef4444' }
