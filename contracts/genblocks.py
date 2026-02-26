@@ -45,6 +45,7 @@ class GenBlocks(gl.Contract):
     governance_player_voted: TreeMap[str, bool]  # room:player -> has_voted
     governance_active: TreeMap[str, bool]  # room_code -> is_proposal_active
     pending_governance_voters: TreeMap[str, str]  # comma-separated list of addresses who haven't voted yet
+    governance_turn_index: TreeMap[str, str]  # room_code -> index into players list of who votes next
     
     # NEW: Global leaderboard (all-time)
     global_total_xp: TreeMap[str, str]  # player_address -> total XP earned
@@ -603,21 +604,36 @@ class GenBlocks(gl.Contract):
         self.governance_votes_no[room_code] = "0"
         self.governance_active[room_code] = True
         
-        # Everyone except proposer needs to vote
-        voters = [p.lower() for p in players if p.lower() != player.as_hex.lower()]
-        self.pending_governance_voters[room_code] = ",".join(voters)
+        # Build ordered voter list — everyone except the proposer (active player), in turn order
+        # Start from the player AFTER the proposer in the players list
+        proposer_addr = player.as_hex.lower()
+        voters_ordered = []
+        for i in range(1, len(players)):
+            idx = (turn_index + i) % len(players)
+            addr = players[idx].lower()
+            p_key = f"{room_code}:{addr}"
+            if self.player_eliminated.get(p_key) != "true":
+                voters_ordered.append(addr)
         
-        # Proposer automatically votes YES
-        self.governance_votes_yes[room_code] = "1"
-        self._add_to_log(room_code, f"{player.as_hex[:6]} proposed: {descriptions[proposal_type]}")
+        self.pending_governance_voters[room_code] = ",".join(voters_ordered)
         
-        # If no voters (i.e. single player game), execute instantly
-        if len(voters) == 0:
+        # Find the index in the global players list of the first voter
+        if voters_ordered:
+            first_voter = voters_ordered[0]
+            first_idx = players.index(first_voter) if first_voter in players else 0
+            self.governance_turn_index[room_code] = str(first_idx)
+        else:
+            # No eligible voters — execute immediately
+            self.governance_turn_index[room_code] = "-1"
             self.execute_governance(room_code)
+            return
+        
+        self._add_to_log(room_code, f"{player.as_hex[:6]} proposed: {descriptions[proposal_type]}")
+
 
     @gl.public.write
     def vote_on_proposal(self, room_code: str, action: str) -> None:
-        """Vote on active governance proposal"""
+        """Vote on active governance proposal — sequential, one voter at a time"""
         player = gl.message.sender_address.as_hex.lower()
         
         phase = self.turn_phase.get(room_code)
@@ -626,12 +642,22 @@ class GenBlocks(gl.Contract):
         active = self.governance_active.get(room_code)
         if not active: raise Exception("No active proposal")
 
+        # Verify it's this player's turn to vote
+        players_str = self.players_list.get(room_code)
+        players = players_str.split(',')
+        gov_turn_idx = int(self.governance_turn_index.get(room_code) or "0")
+        current_voter = players[gov_turn_idx % len(players)].lower()
+        
+        if player != current_voter:
+            raise Exception("Not your turn to vote")
+
         pending_str = self.pending_governance_voters.get(room_code) or ""
         pending_voters = pending_str.split(',') if pending_str else []
         
         if player not in pending_voters:
             raise Exception("Already voted or not eligible")
             
+        # Remove voter from pending list
         pending_voters.remove(player)
         self.pending_governance_voters[room_code] = ",".join(pending_voters)
         
@@ -639,20 +665,41 @@ class GenBlocks(gl.Contract):
             yes_count = int(self.governance_votes_yes.get(room_code) or "0")
             self.governance_votes_yes[room_code] = str(yes_count + 1)
             self._add_to_log(room_code, f"{player[:6]} voted YES")
-        elif action == "reject":
+        elif action in ("reject", "timeout"):
             no_count = int(self.governance_votes_no.get(room_code) or "0")
             self.governance_votes_no[room_code] = str(no_count + 1)
-            self._add_to_log(room_code, f"{player[:6]} voted NO")
-        elif action == "timeout":
-            # Count timeout as a reject
-            no_count = int(self.governance_votes_no.get(room_code) or "0")
-            self.governance_votes_no[room_code] = str(no_count + 1)
-            self._add_to_log(room_code, f"{player[:6]} timed out (abstained)")
+            label = "timed out (abstained)" if action == "timeout" else "voted NO"
+            self._add_to_log(room_code, f"{player[:6]} {label}")
         else:
             raise Exception("Invalid action")
         
         if len(pending_voters) == 0:
+            # All voters have gone — execute the result
             self.execute_governance(room_code)
+        else:
+            # Advance to next voter in line
+            self._next_governance_voter(room_code)
+
+    def _next_governance_voter(self, room_code: str) -> None:
+        """Advance governance_turn_index to the next pending voter"""
+        players_str = self.players_list.get(room_code)
+        if not players_str: return
+        players = players_str.split(',')
+        
+        pending_str = self.pending_governance_voters.get(room_code) or ""
+        pending_voters = pending_str.split(',') if pending_str else []
+        
+        if not pending_voters:
+            self.execute_governance(room_code)
+            return
+        
+        # Find the index of the next pending voter in the players list
+        next_voter = pending_voters[0]
+        for i, p in enumerate(players):
+            if p.lower() == next_voter:
+                self.governance_turn_index[room_code] = str(i)
+                return
+
 
     def execute_governance(self, room_code: str) -> None:
         """Execute governance proposal if it passed"""
@@ -891,6 +938,7 @@ class GenBlocks(gl.Contract):
         gov_yes = self.governance_votes_yes.get(room_code) or "0"
         gov_no = self.governance_votes_no.get(room_code) or "0"
         gov_voters = self.pending_governance_voters.get(room_code) or ""
+        gov_turn = self.governance_turn_index.get(room_code) or "0"
         
         results = []
         for addr in players_str.split(','):
@@ -914,7 +962,7 @@ class GenBlocks(gl.Contract):
             results.append(f"{addr.lower()}:{xp}:{pos}:{shields}:{combo}:{is_mult}:{elim}:{roll}")
         
         players_data = "|".join(results)
-        return f"{turn_idx};{start_time};{phase};{players_data};{pending_target};{pending_attacker};{auction_bid};{auction_bidder};{auction_turn};{auction_passed};{gov_active};{gov_prop};{gov_yes};{gov_no};{gov_voters}"
+        return f"{turn_idx};{start_time};{phase};{players_data};{pending_target};{pending_attacker};{auction_bid};{auction_bidder};{auction_turn};{auction_passed};{gov_active};{gov_prop};{gov_yes};{gov_no};{gov_voters};{gov_turn}"
 
     @gl.public.view
     def get_active_room(self, player_addr: str) -> str:

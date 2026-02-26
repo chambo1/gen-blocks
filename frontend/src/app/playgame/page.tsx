@@ -86,6 +86,7 @@ export default function PlayGame() {
   const [govTimeleft, setGovTimeleft] = useState<number>(30)
   const [hasRespondedToGov, setHasRespondedToGov] = useState<boolean>(false)
   const [pendingGovVoters, setPendingGovVoters] = useState<string[]>([])
+  const [govTurnIndex, setGovTurnIndex] = useState<number>(0)
   const [govYesVotes, setGovYesVotes] = useState<number>(0)
   const [govNoVotes, setGovNoVotes] = useState<number>(0)
 
@@ -279,11 +280,14 @@ export default function PlayGame() {
     }
   }, [turnPhase, auctionTurnIndex, address, auctionTimeleft, hasRespondedToAuction, allGamePlayers.length])
 
-  // Timer for governance response
+  // Timer for governance response — fires only when it's THIS player's sequential turn to vote
   useEffect(() => {
-    if (turnPhase === 'governing' && !hasRespondedToGov && address) {
-      const lowerAddress = address.toLowerCase()
-      if (pendingGovVoters.includes(lowerAddress)) {
+    if (turnPhase === 'governing' && !hasRespondedToGov && address && allGamePlayers.length > 0) {
+      // It's my turn if I'm the player at govTurnIndex in allGamePlayers
+      const currentVoter = allGamePlayers[govTurnIndex % allGamePlayers.length]
+      const isMyVoteTurn = currentVoter?.address?.toLowerCase() === address.toLowerCase()
+      const stillPending = pendingGovVoters.includes(address.toLowerCase())
+      if (isMyVoteTurn && stillPending) {
         if (govTimeleft > 0) {
           const timerId = setTimeout(() => {
             setGovTimeleft(prev => prev - 1)
@@ -294,7 +298,23 @@ export default function PlayGame() {
         }
       }
     }
-  }, [turnPhase, pendingGovVoters.join(','), address, govTimeleft, hasRespondedToGov])
+  }, [turnPhase, govTurnIndex, address, govTimeleft, hasRespondedToGov, allGamePlayers, pendingGovVoters])
+
+  // Reset governance timer when voter changes
+  useEffect(() => {
+    if (turnPhase === 'governing') {
+      setGovTimeleft(30)
+      setHasRespondedToGov(false)
+    }
+  }, [govTurnIndex, turnPhase])
+
+  // Reset auction timer when bidder changes
+  useEffect(() => {
+    if (turnPhase === 'auctioning') {
+      setAuctionTimeleft(30)
+      setHasRespondedToAuction(false)
+    }
+  }, [auctionTurnIndex, turnPhase])
 
   // Timer for steal response
   useEffect(() => {
@@ -503,6 +523,8 @@ export default function PlayGame() {
 
             const gvoters = mainParts[14] || ''
             setPendingGovVoters(gvoters ? gvoters.split(',') : [])
+            const govTurnIdx = parseInt(mainParts[15] || '0') || 0
+            setGovTurnIndex(govTurnIdx)
 
             if (phase !== 'stealing_response') {
               setStealTimeleft(40)
@@ -955,6 +977,8 @@ export default function PlayGame() {
 
       const gvoters = mainParts[14] || ''
       setPendingGovVoters(gvoters ? gvoters.split(',') : [])
+      const govTurnIdx = parseInt(mainParts[15] || '0') || 0
+      setGovTurnIndex(govTurnIdx)
 
       if (phase !== 'stealing_response') {
         setStealTimeleft(40)
@@ -2435,7 +2459,10 @@ export default function PlayGame() {
                     const isMyAuctionTurn = auctionCurrentAddr.toLowerCase() === address?.toLowerCase()
 
                     const isGoverning = turnPhase === 'governing'
-                    const isMyGovTurn = pendingGovVoters.includes(address?.toLowerCase() || '')
+                    // isMyGovTurn: it's my turn only if I'm the player at govTurnIndex AND still in pending voters
+                    const currentGovVoter = allGamePlayers[govTurnIndex % allGamePlayers.length]
+                    const isMyGovTurn = currentGovVoter?.address?.toLowerCase() === address?.toLowerCase()
+                      && pendingGovVoters.includes(address?.toLowerCase() || '')
 
                     const currentPlayer = allGamePlayers.find(p => p.address.toLowerCase() === (currentTurnAddress || '').toLowerCase())
                     const landedBlock = currentPlayer ? board[currentPlayer.position] : null
@@ -2682,7 +2709,7 @@ export default function PlayGame() {
                                     <div style={{ color: '#ef4444', fontSize: '1.2rem' }}>❌ NO: {govNoVotes}</div>
                                   </div>
                                   <p style={{ color: '#ffbe0b', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                                    ⌛ Waiting for others to vote... ({pendingGovVoters.length} remaining)
+                                    ⌛ Waiting for {(currentGovVoter?.address || '').slice(0, 6)} to vote... ({pendingGovVoters.length} remaining)
                                   </p>
                                   <div className="loader" style={{ margin: '1rem auto' }} />
                                 </div>
