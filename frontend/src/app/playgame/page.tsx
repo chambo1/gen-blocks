@@ -90,6 +90,7 @@ export default function PlayGame() {
   const [govTurnIndex, setGovTurnIndex] = useState<number>(0)
   const [govYesVotes, setGovYesVotes] = useState<number>(0)
   const [govNoVotes, setGovNoVotes] = useState<number>(0)
+  const [govVoterStartTime, setGovVoterStartTime] = useState<number>(0)
 
   const [xpBeforeRoll, setXpBeforeRoll] = useState(0)
   const [pendingRoomCode, setPendingRoomCode] = useState<string>('')
@@ -281,30 +282,45 @@ export default function PlayGame() {
     }
   }, [turnPhase, auctionTurnIndex, address, auctionTimeleft, hasRespondedToAuction, allGamePlayers.length])
 
-  // Timer for governance response — fires only when it's THIS player's sequential turn to vote
+  // Universal Governance Timer — visible to all players to track current voter
   useEffect(() => {
-    if (turnPhase === 'governing' && !hasRespondedToGov && address && allGamePlayers.length > 0) {
-      // It's my turn if I'm the player at govTurnIndex in allGamePlayers
-      const currentVoter = allGamePlayers[govTurnIndex % allGamePlayers.length]
-      const isMyVoteTurn = currentVoter?.address?.toLowerCase() === address.toLowerCase()
-      const stillPending = pendingGovVoters.includes(address.toLowerCase())
-      if (isMyVoteTurn && stillPending) {
-        if (govTimeleft > 0) {
-          const timerId = setTimeout(() => {
-            setGovTimeleft(prev => prev - 1)
-          }, 1000)
-          return () => clearTimeout(timerId)
-        } else {
-          handleVoteProposal('timeout')
+    if (turnPhase === 'governing' && govVoterStartTime > 0) {
+      const updateTimer = () => {
+        const now = Math.floor(Date.now() / 1000)
+        const elapsed = now - govVoterStartTime
+        const remaining = Math.max(0, 40 - elapsed)
+        setGovTimeleft(remaining)
+
+        // If I am NOT the voter and time is up, I can potentially trigger the timeout
+        if (remaining === 0 && !hasRespondedToGov) {
+          const currentVoter = allGamePlayers[govTurnIndex % allGamePlayers.length]
+          const isMyVoteTurn = currentVoter?.address?.toLowerCase() === address?.toLowerCase()
+          if (!isMyVoteTurn) {
+            // We wait a bit more to be safe before calling contract timeout
+            // but we can at least show it's timed out in UI
+          }
         }
       }
+      updateTimer()
+      const interval = setInterval(updateTimer, 1000)
+      return () => clearInterval(interval)
     }
-  }, [turnPhase, govTurnIndex, address, govTimeleft, hasRespondedToGov, allGamePlayers, pendingGovVoters])
+  }, [turnPhase, govVoterStartTime, govTurnIndex, address, allGamePlayers, hasRespondedToGov])
 
-  // Reset governance timer when voter changes
+  // Sequential actor: if it's MY turn and time is up, I submit my own timeout
+  useEffect(() => {
+    if (turnPhase === 'governing' && !hasRespondedToGov && address && allGamePlayers.length > 0) {
+      const currentVoter = allGamePlayers[govTurnIndex % allGamePlayers.length]
+      const isMyVoteTurn = currentVoter?.address?.toLowerCase() === address.toLowerCase()
+      if (isMyVoteTurn && govTimeleft === 0) {
+        handleVoteProposal('timeout')
+      }
+    }
+  }, [turnPhase, govTimeleft, govTurnIndex, address, allGamePlayers, hasRespondedToGov])
+
+  // Reset local response state when voter changes
   useEffect(() => {
     if (turnPhase === 'governing') {
-      setGovTimeleft(30)
       setHasRespondedToGov(false)
     }
   }, [govTurnIndex, turnPhase])
@@ -532,6 +548,8 @@ export default function PlayGame() {
             setPendingGovVoters(gvoters ? gvoters.split(',') : [])
             const govTurnIdx = parseInt(mainParts[15] || '0') || 0
             setGovTurnIndex(govTurnIdx)
+            const govStart = parseInt(mainParts[16] || '0') || 0
+            setGovVoterStartTime(govStart)
 
             if (phase !== 'stealing_response') {
               setStealTimeleft(40)
@@ -2820,10 +2838,32 @@ export default function PlayGame() {
                                     <div style={{ color: '#4CAF50', fontSize: '1.2rem' }}>✅ YES: {govYesVotes}</div>
                                     <div style={{ color: '#ef4444', fontSize: '1.2rem' }}>❌ NO: {govNoVotes}</div>
                                   </div>
-                                  <p style={{ color: '#ffbe0b', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                                    ⌛ Waiting for {(currentGovVoter?.address || '').slice(0, 6)} to vote... ({pendingGovVoters.length} remaining)
-                                  </p>
+                                  <div style={{ color: govTimeleft <= 10 ? '#ef4444' : 'rgba(255,255,255,0.6)', fontSize: '1rem', marginBottom: '1rem' }}>
+                                    ⏱️ Voter has {govTimeleft}s remaining
+                                  </div>
+                                  {isActivePlayer ? (
+                                    <div style={{ color: '#00fff9', fontWeight: 'bold' }}>
+                                      📢 You proposed this. Awaiting community results...
+                                    </div>
+                                  ) : (
+                                    <p style={{ color: '#ffbe0b', fontSize: '1rem' }}>
+                                      ⌛ Waiting for {(currentGovVoter?.address || '').slice(0, 6)}... to vote
+                                    </p>
+                                  )}
                                   <div className="loader" style={{ margin: '1rem auto' }} />
+
+                                  {govTimeleft === 0 && (
+                                    <button
+                                      className="action-button warning"
+                                      style={{ marginTop: '1rem', width: '100%', padding: '0.8rem' }}
+                                      onClick={() => {
+                                        addLog('⏭️ Triggering voter timeout...')
+                                        writeGenLayerContract('timeout_governance_vote', [roomCode], address || '').then(({ wait }) => wait())
+                                      }}
+                                    >
+                                      ⏭️ Trigger Voter Timeout
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>
