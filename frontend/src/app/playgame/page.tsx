@@ -71,6 +71,7 @@ export default function PlayGame() {
 
   // Reconnection state
   const [isCheckingActiveRoom, setIsCheckingActiveRoom] = useState(false)
+  const [turnIndex, setTurnIndex] = useState(0)
   const [turnPhase, setTurnPhase] = useState<'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing'>('rolling')
   const [pendingStealTarget, setPendingStealTarget] = useState<string>('')
   const [pendingStealAttacker, setPendingStealAttacker] = useState<string>('')
@@ -156,10 +157,10 @@ export default function PlayGame() {
 
     try {
       const [count, creator, started, layout] = await Promise.all([
-        readGenLayerContract('get_player_count', [roomCode]),
-        readGenLayerContract('get_room_creator', [roomCode]),
-        readGenLayerContract('is_game_started', [roomCode]),
-        readGenLayerContract('get_board_layout', [roomCode])  // Always fetch layout
+        readGenLayerContract('get_player_count', [roomCode], address),
+        readGenLayerContract('get_room_creator', [roomCode], address),
+        readGenLayerContract('is_game_started', [roomCode], address),
+        readGenLayerContract('get_board_layout', [roomCode], address)  // Always fetch layout
       ])
 
       console.log('Poll Lobby:', { count, creator, started, hasLayout: !!layout })
@@ -213,9 +214,9 @@ export default function PlayGame() {
         if (candidateRoom && candidateRoom !== 'none' && candidateRoom !== '') {
           // Verify the room is still alive: check if it's not finished
           const [isFinished, isStarted, playerCount] = await Promise.all([
-            readGenLayerContract('is_room_game_over', [candidateRoom]),
-            readGenLayerContract('is_game_started', [candidateRoom]),
-            readGenLayerContract('get_player_count', [candidateRoom]),
+            readGenLayerContract('is_room_game_over', [candidateRoom], address),
+            readGenLayerContract('is_game_started', [candidateRoom], address),
+            readGenLayerContract('get_player_count', [candidateRoom], address),
           ])
 
           const finished = String(isFinished) === 'FINISHED'
@@ -497,7 +498,7 @@ export default function PlayGame() {
     const fetchFullGameState = async () => {
       try {
         console.log('⛓️ Mega-Poll starting...')
-        const megaData = await readGenLayerContract('get_full_game_state', [roomCode])
+        const megaData = await readGenLayerContract('get_full_game_state', [roomCode], address)
         if (!megaData || typeof megaData !== 'string') return
 
         const [playerData, govData, logData, gameOver] = megaData.split('#')
@@ -508,6 +509,7 @@ export default function PlayGame() {
           const mainParts = playerData.split(';')
           if (mainParts.length >= 4) {
             const turnIdx = parseInt(mainParts[0]) || 0
+            setTurnIndex(turnIdx)
             const phase = mainParts[2] as 'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
             const pTarget = mainParts[4] || ''
             const pAttacker = mainParts[5] || ''
@@ -948,7 +950,7 @@ export default function PlayGame() {
       await new Promise(r => setTimeout(r, 1000))
 
       // 4. Poll for updated game state
-      const rawData = await readGenLayerContract('get_all_player_data', [roomCode])
+      const rawData = await readGenLayerContract('get_all_player_data', [roomCode], address)
 
       // Stop animation
       clearInterval(animInterval)
@@ -967,6 +969,7 @@ export default function PlayGame() {
       }
 
       const turnIdx = parseInt(mainParts[0]) || 0
+      setTurnIndex(turnIdx)
       const phase = mainParts[2] as 'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
       const pTarget = mainParts[4] || ''
       const pAttacker = mainParts[5] || ''
