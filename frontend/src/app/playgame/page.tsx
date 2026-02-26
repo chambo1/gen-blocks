@@ -2474,7 +2474,16 @@ export default function PlayGame() {
                     const getBlockXPInfo = () => {
                       if (!landedBlock) return null
                       switch (landedBlock.type) {
-                        case 'build': return { icon: '🟩', action: 'Built a contract', xp: `+${currentPlayer?.hasMultiplier ? 12 : 6} XP`, color: '#4CAF50' }
+                        case 'build':
+                          if (turnPhase === 'finishing') {
+                            return {
+                              icon: '🟩',
+                              action: 'Contract Built',
+                              xp: `Built a ${currentPlayer?.hasMultiplier ? 'MAX' : 'mini'} intelligent contract for ${currentPlayer?.hasMultiplier ? 12 : 6} XP`,
+                              color: '#4CAF50'
+                            }
+                          }
+                          return { icon: '🟩', action: 'Build Block', xp: 'Gain XP by building a contract', color: '#4CAF50' }
                         case 'bonus': return { icon: '🟨', action: 'Bonus collected', xp: `+${currentPlayer?.hasMultiplier ? 10 : 5} XP or Shield`, color: '#ffbe0b' }
                         case 'mystery': return { icon: '⭐', action: 'Mystery reward', xp: `Random XP/Shield${currentPlayer?.hasMultiplier ? ' (⚡ 2X Active!)' : ''}`, color: '#a855f7' }
                         case 'lucky': return { icon: '🎁', action: 'Lucky bonus', xp: `+${currentPlayer?.hasMultiplier ? 30 : 15} XP, Shield, or 2X`, color: '#00fff9' }
@@ -2738,7 +2747,7 @@ export default function PlayGame() {
                           ) : (
                             // Standard Block Action Section — only for active player on interactive blocks
                             isActivePlayer && currentBlock &&
-                            !['finishing', 'auctioning', 'governing', 'stealing_response'].includes(turnPhase) &&
+                            !['auctioning', 'governing', 'stealing_response'].includes(turnPhase) &&
                             (['build', 'steal', 'auction', 'governance'].includes(currentBlock.type)) && (
                               actionPerformed ||
                               (['build', 'auction', 'governance'].includes(currentBlock.type) && showActionPrompt) ||
