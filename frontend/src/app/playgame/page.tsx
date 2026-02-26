@@ -2484,10 +2484,38 @@ export default function PlayGame() {
                             }
                           }
                           return { icon: '🟩', action: 'Build Block', xp: 'Gain XP by building a contract', color: '#4CAF50' }
-                        case 'bonus': return { icon: '🟨', action: 'Bonus collected', xp: `+${currentPlayer?.hasMultiplier ? 10 : 5} XP or Shield`, color: '#ffbe0b' }
-                        case 'mystery': return { icon: '⭐', action: 'Mystery reward', xp: `Random XP/Shield${currentPlayer?.hasMultiplier ? ' (⚡ 2X Active!)' : ''}`, color: '#a855f7' }
-                        case 'lucky': return { icon: '🎁', action: 'Lucky bonus', xp: `+${currentPlayer?.hasMultiplier ? 30 : 15} XP, Shield, or 2X`, color: '#00fff9' }
-                        case 'steal': return { icon: '🏴\u200d☠️', action: 'Stealing from a player', xp: '+5 XP stolen', color: '#ff006e' }
+                        case 'bonus':
+                          const bonusLog = gameLog.slice().reverse().find(l => l.includes('Bonus:'))
+                          return {
+                            icon: '🟨',
+                            action: 'Bonus collected',
+                            xp: bonusLog ? bonusLog.split('Bonus:')[1].trim() : `+${currentPlayer?.hasMultiplier ? 10 : 5} XP or Shield`,
+                            color: '#ffbe0b'
+                          }
+                        case 'mystery':
+                          const mysteryLog = gameLog.slice().reverse().find(l => l.includes('Mystery:'))
+                          return {
+                            icon: '⭐',
+                            action: 'Mystery reward',
+                            xp: mysteryLog ? mysteryLog.split('Mystery:')[1].trim() : `Random XP/Shield${currentPlayer?.hasMultiplier ? ' (⚡ 2X Active!)' : ''}`,
+                            color: '#a855f7'
+                          }
+                        case 'lucky':
+                          const luckyLog = gameLog.slice().reverse().find(l => l.includes('Lucky:'))
+                          return {
+                            icon: '🎁',
+                            action: 'Lucky bonus',
+                            xp: luckyLog ? luckyLog.split('Lucky:')[1].trim() : `+${currentPlayer?.hasMultiplier ? 30 : 15} XP, Shield, or 2X`,
+                            color: '#00fff9'
+                          }
+                        case 'steal':
+                          if (turnPhase === 'finishing') {
+                            const stealLog = gameLog.slice().reverse().find(l => l.includes('stole') || l.includes('blocked steal') || l.includes('forfeited'));
+                            if (stealLog) {
+                              return { icon: '🏴\u200d☠️', action: 'Steal Result', xp: stealLog, color: '#ff006e' }
+                            }
+                          }
+                          return { icon: '🏴\u200d☠️', action: 'Stealing from a player', xp: '+5 XP stolen', color: '#ff006e' }
                         case 'auction':
                           if (turnPhase === 'finishing') {
                             const winner = allGamePlayers.find(p => p.address.toLowerCase() === (auctionHighestBidder || '').toLowerCase())
@@ -2509,8 +2537,22 @@ export default function PlayGame() {
                             }
                           }
                           return { icon: '🟥', action: 'Governance vote', xp: 'Community decision', color: '#ef4444' }
-                        case 'danger': return { icon: '⚠️', action: 'Danger! XP penalty', xp: `-${currentPlayer?.hasMultiplier ? 4 : 2} XP`, color: '#ff6400' }
-                        case 'hazard': return { icon: '💀', action: 'Hazard! XP penalty', xp: `-${currentPlayer?.hasMultiplier ? 10 : 5} XP`, color: '#b400b4' }
+                        case 'danger':
+                          const dangerLog = gameLog.slice().reverse().find(l => l.includes('Danger:'))
+                          return {
+                            icon: '⚠️',
+                            action: 'Danger! XP penalty',
+                            xp: dangerLog ? dangerLog.split('Danger:')[1].trim() : `-${currentPlayer?.hasMultiplier ? 4 : 2} XP`,
+                            color: '#ff6400'
+                          }
+                        case 'hazard':
+                          const hazardLog = gameLog.slice().reverse().find(l => l.includes('Hazard:'))
+                          return {
+                            icon: '💀',
+                            action: 'Hazard! XP penalty',
+                            xp: hazardLog ? hazardLog.split('Hazard:')[1].trim() : `-${currentPlayer?.hasMultiplier ? 10 : 5} XP`,
+                            color: '#b400b4'
+                          }
                         case 'end': return { icon: '☠️', action: 'END Block hit!', xp: '-10 XP + Eliminated', color: '#ff0000' }
                         case 'start': return { icon: '🏁', action: 'Passed START', xp: '+10 XP', color: '#00fff9' }
                         default: return null
