@@ -2605,6 +2605,24 @@ export default function PlayGame() {
                             <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem', marginTop: '0.3rem' }}>
                               {isActivePlayer ? '🌟 YOUR TURN' : `PLAYER ${(currentPlayer?.globalIndex ?? 0) + 1}'S TURN`}
                             </p>
+                            {currentPlayer?.hasMultiplier && (
+                              <div style={{
+                                display: 'inline-block',
+                                marginTop: '0.8rem',
+                                padding: '0.4rem 1rem',
+                                background: 'rgba(168, 85, 247, 0.2)',
+                                border: '1px solid #a855f7',
+                                borderRadius: '20px',
+                                color: '#a855f7',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                letterSpacing: '0.1em',
+                                boxShadow: '0 0 15px rgba(168, 85, 247, 0.4)',
+                                animation: 'pulse 2s infinite'
+                              }}>
+                                ⚡ 2X MULTIPLIER ACTIVE
+                              </div>
+                            )}
                           </div>
 
                           {/* Dice + Block row */}
