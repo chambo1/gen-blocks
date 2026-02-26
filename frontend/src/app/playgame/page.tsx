@@ -1200,6 +1200,7 @@ export default function PlayGame() {
   const handleStartAuction = async () => {
     if (!address || !roomCode) return
     setActionPerformed(true)
+    setShowActionPrompt(false)
     try {
       addLog(`💰 Getting ready for auction...`)
       const { wait } = await writeGenLayerContract('handle_auction_block', [roomCode], address)
@@ -2478,8 +2479,27 @@ export default function PlayGame() {
                         case 'mystery': return { icon: '⭐', action: 'Mystery reward', xp: `Random XP/Shield${currentPlayer?.hasMultiplier ? ' (⚡ 2X Active!)' : ''}`, color: '#a855f7' }
                         case 'lucky': return { icon: '🎁', action: 'Lucky bonus', xp: `+${currentPlayer?.hasMultiplier ? 30 : 15} XP, Shield, or 2X`, color: '#00fff9' }
                         case 'steal': return { icon: '🏴\u200d☠️', action: 'Stealing from a player', xp: '+5 XP stolen', color: '#ff006e' }
-                        case 'auction': return { icon: '💰', action: 'Auction block', xp: 'Bid for 2x multiplier', color: '#ff9500' }
-                        case 'governance': return { icon: '🟥', action: 'Governance vote', xp: 'Community decision', color: '#ef4444' }
+                        case 'auction':
+                          if (turnPhase === 'finishing') {
+                            const winner = allGamePlayers.find(p => p.address.toLowerCase() === (auctionHighestBidder || '').toLowerCase())
+                            return {
+                              icon: '💰',
+                              action: 'Auction Result',
+                              xp: winner ? `Won by ${winner.name} for ${auctionCurrentBid} XP` : 'Auction ended with no bids',
+                              color: '#ff9500'
+                            }
+                          }
+                          return { icon: '💰', action: 'Auction block', xp: 'Bid for 2x multiplier', color: '#ff9500' }
+                        case 'governance':
+                          if (turnPhase === 'finishing') {
+                            return {
+                              icon: '🟥',
+                              action: 'Governance Result',
+                              xp: (govYesVotes > govNoVotes) ? 'Proposal PASSED!' : 'Proposal FAILED',
+                              color: '#ef4444'
+                            }
+                          }
+                          return { icon: '🟥', action: 'Governance vote', xp: 'Community decision', color: '#ef4444' }
                         case 'danger': return { icon: '⚠️', action: 'Danger! XP penalty', xp: `-${currentPlayer?.hasMultiplier ? 4 : 2} XP`, color: '#ff6400' }
                         case 'hazard': return { icon: '💀', action: 'Hazard! XP penalty', xp: `-${currentPlayer?.hasMultiplier ? 10 : 5} XP`, color: '#b400b4' }
                         case 'end': return { icon: '☠️', action: 'END Block hit!', xp: '-10 XP + Eliminated', color: '#ff0000' }
@@ -2717,7 +2737,13 @@ export default function PlayGame() {
                             </div>
                           ) : (
                             // Standard Block Action Section — only for active player on interactive blocks
-                            isActivePlayer && currentBlock && (['build', 'steal', 'auction', 'governance'].includes(currentBlock.type)) && (
+                            isActivePlayer && currentBlock &&
+                            !['finishing', 'auctioning', 'governing', 'stealing_response'].includes(turnPhase) &&
+                            (['build', 'steal', 'auction', 'governance'].includes(currentBlock.type)) && (
+                              actionPerformed ||
+                              (['build', 'auction', 'governance'].includes(currentBlock.type) && showActionPrompt) ||
+                              (currentBlock.type === 'steal' && showStealPrompt)
+                            ) && (
                               <div style={{
                                 borderTop: '1px solid rgba(255,255,255,0.15)',
                                 paddingTop: '1.5rem',
