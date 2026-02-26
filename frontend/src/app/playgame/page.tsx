@@ -2700,13 +2700,20 @@ export default function PlayGame() {
                                     >
                                       🛡️ Use Shield ({shields} left)
                                     </button>
-                                    <button
-                                      className="action-button warning"
-                                      style={{ width: '100%' }}
-                                      onClick={() => handleStealResponse('forfeit')}
-                                    >
-                                      📉 Pay 7 XP to block
-                                    </button>
+                                    {(() => {
+                                      const attacker = allGamePlayers.find(p => p.address.toLowerCase() === pendingStealAttacker.toLowerCase());
+                                      const forfeitCost = 7 * (attacker?.hasMultiplier ? 2 : 1);
+                                      return (
+                                        <button
+                                          className="action-button warning"
+                                          style={{ width: '100%', opacity: playerXP < forfeitCost ? 0.6 : 1 }}
+                                          onClick={() => handleStealResponse('forfeit')}
+                                          disabled={playerXP < forfeitCost}
+                                        >
+                                          📉 Pay {forfeitCost} XP to block
+                                        </button>
+                                      );
+                                    })()}
                                     <button
                                       className="action-button secondary"
                                       style={{ width: '100%', border: '1px solid #ff006e', color: '#ff006e' }}
