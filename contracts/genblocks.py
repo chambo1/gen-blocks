@@ -164,12 +164,25 @@ class GenBlocks(gl.Contract):
     
     def _add_to_log(self, room_code: str, entry: str) -> None:
         """Internal: Add entry to on-chain room log (keep last 10)"""
+        turn_idx = self.current_turn.get(room_code) or "0"
+        entry_with_turn = f"[{turn_idx}] {entry}"
         current_log = self.room_log.get(room_code) or ""
         entries = current_log.split('|') if current_log else []
-        entries.append(entry)
+        entries.append(entry_with_turn)
         if len(entries) > 10:
             entries = entries[-10:]
         self.room_log[room_code] = "|".join(entries)
+
+    def _deduct_xp(self, room_code: str, player_addr: str, amount: int) -> None:
+        """Internal: Deduct XP and check for elimination"""
+        key = f"{room_code}:{player_addr.lower()}"
+        current_xp = int(self.player_xp.get(key) or "0")
+        new_xp = max(0, current_xp - amount)
+        self.player_xp[key] = str(new_xp)
+        
+        if new_xp == 0:
+            self.player_eliminated[key] = "true"
+            self._add_to_log(room_code, f"☠️ {player_addr[:6]} ELIMINATED (Ran out of XP)")
 
     def _seed_random(self, room_code: str, extra: str = "") -> None:
         """Internal: Seed the random module with entropy from the blockchain state"""
@@ -400,17 +413,33 @@ class GenBlocks(gl.Contract):
             raise e
     
     def _check_winners(self, room_code: str) -> None:
-        """Internal: Check if any player has reached 100 XP"""
+        """Internal: Check if any player has reached 100 XP or if only one remains"""
         players_str = self.players_list.get(room_code)
-        if players_str:
-            for player_addr in players_str.split(','):
-                p_key = f"{room_code}:{player_addr.lower()}"
-                xp = int(self.player_xp.get(p_key) or "0")
-                if xp >= 100:
-                    print(f"[Contract] Win condition met by {player_addr} with {xp} XP")
-                    self._add_to_log(room_code, f"🏆 {player_addr[:6]} WINS!")
-                    self._conclude_game_session(room_code)
-                    break
+        if not players_str: return
+        
+        players = players_str.split(',')
+        active_players = []
+        
+        for player_addr in players:
+            p_key = f"{room_code}:{player_addr.lower()}"
+            elim = self.player_eliminated.get(p_key) == "true"
+            xp = int(self.player_xp.get(p_key) or "0")
+            
+            if xp >= 100:
+                self._add_to_log(room_code, f"🏆 {player_addr[:6]} WINS (XP Limit Reached)!")
+                self._conclude_game_session(room_code)
+                return
+            
+            if not elim:
+                active_players.append(player_addr)
+        
+        if len(active_players) == 1 and len(players) > 1:
+            winner = active_players[0]
+            self._add_to_log(room_code, f"🏆 {winner[:6]} WINS (Last Player Standing)!")
+            self._conclude_game_session(room_code)
+        elif len(active_players) == 0:
+            self._add_to_log(room_code, "💀 Everyone was eliminated! No winner.")
+            self._conclude_game_session(room_code)
 
     @gl.public.write
     def end_turn(self, room_code: str) -> None:
@@ -732,8 +761,7 @@ class GenBlocks(gl.Contract):
                 xp = int(self.player_xp.get(key) or "0")
                 self.player_xp[key] = str(xp + 5)
             elif proposal_type == "tax_players":
-                xp = int(self.player_xp.get(key) or "0")
-                self.player_xp[key] = str(max(0, xp - 5))
+                self._deduct_xp(room_code, player_addr, 5)
             elif proposal_type == "burn_shields":
                 self.player_shields[key] = "0"
             elif proposal_type == "strip_multipliers":
@@ -1270,14 +1298,18 @@ class GenBlocks(gl.Contract):
             active_mult = int(self.turn_active_mult.get(room_code) or "1")
             penalty = base_penalty * active_mult
             
-            self.player_xp[target_key] = str(max(0, target_xp - penalty))
+            if target_xp < penalty:
+                raise Exception(f"Not enough XP to forfeit (Needs {penalty}, has {target_xp})")
+                
+            self._deduct_xp(room_code, target_lower, penalty)
             self._add_to_log(room_code, f"{target_lower[:6]} forfeited {penalty} XP to block steal!")
             
         elif action == "allow":
             target_xp = int(self.player_xp.get(target_key) or "0")
             attacker_xp = int(self.player_xp.get(attacker_key) or "0")
             steal_amount = min(5, target_xp)
-            self.player_xp[target_key] = str(target_xp - steal_amount)
+            
+            self._deduct_xp(room_code, target_lower, steal_amount)
             self.player_xp[attacker_key] = str(attacker_xp + steal_amount)
             self._add_to_log(room_code, f"{pending_attacker[:6]} stole {steal_amount} XP!")
             
@@ -1452,8 +1484,8 @@ class GenBlocks(gl.Contract):
         current_xp = int(self.player_xp.get(key) or "0")
         
         # Deduct 10 XP and eliminate
-        self.player_xp[key] = str(max(0, current_xp - 10))
-        self.player_eliminated[key] = "true"
+        self._deduct_xp(room_code, player.as_hex, 10)
+        self.player_eliminated[key] = "true" # Ensure it's definitely true even if they had >10 XP
         self._add_to_log(room_code, f"💀 {player.as_hex[:6]} REACHED THE END - ELIMINATED!")
         
         # Check if everyone is eliminated (optional: conclude game if only 1 or 0 left)
@@ -1478,7 +1510,7 @@ class GenBlocks(gl.Contract):
         active_mult = int(self.turn_active_mult.get(room_code) or "1")
         penalty = base_penalty * active_mult
         
-        self.player_xp[key] = str(max(0, current_xp - penalty))
+        self._deduct_xp(room_code, player.as_hex, penalty)
         self._add_to_log(room_code, f"Danger: {player.as_hex[:6]} lost {penalty} XP")
         self._check_winners(room_code)
 
@@ -1501,6 +1533,6 @@ class GenBlocks(gl.Contract):
         active_mult = int(self.turn_active_mult.get(room_code) or "1")
         penalty = base_penalty * active_mult
         
-        self.player_xp[key] = str(max(0, current_xp - penalty))
+        self._deduct_xp(room_code, player.as_hex, penalty)
         self._add_to_log(room_code, f"HAZARD: {player.as_hex[:6]} lost {penalty} XP")
         self._check_winners(room_code)

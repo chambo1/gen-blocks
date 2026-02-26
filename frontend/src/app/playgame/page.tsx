@@ -2495,7 +2495,7 @@ export default function PlayGame() {
                           }
                           return { icon: '🟩', action: 'Build Block', xp: 'Gain XP by building a contract', color: '#4CAF50' }
                         case 'bonus':
-                          const bonusLog = gameLog.slice().reverse().find(l => l.includes('Bonus:'))
+                          const bonusLog = gameLog.slice().reverse().find(l => l.includes(`[${turnIndex}]`) && l.includes('Bonus:'))
                           return {
                             icon: '🟨',
                             action: 'Bonus collected',
@@ -2503,7 +2503,7 @@ export default function PlayGame() {
                             color: '#ffbe0b'
                           }
                         case 'mystery':
-                          const mysteryLog = gameLog.slice().reverse().find(l => l.includes('Mystery:'))
+                          const mysteryLog = gameLog.slice().reverse().find(l => l.includes(`[${turnIndex}]`) && l.includes('Mystery:'))
                           return {
                             icon: '⭐',
                             action: 'Mystery reward',
@@ -2511,7 +2511,7 @@ export default function PlayGame() {
                             color: '#a855f7'
                           }
                         case 'lucky':
-                          const luckyLog = gameLog.slice().reverse().find(l => l.includes('Lucky:'))
+                          const luckyLog = gameLog.slice().reverse().find(l => l.includes(`[${turnIndex}]`) && l.includes('Lucky:'))
                           return {
                             icon: '🎁',
                             action: 'Lucky bonus',
@@ -2520,9 +2520,10 @@ export default function PlayGame() {
                           }
                         case 'steal':
                           if (turnPhase === 'finishing') {
-                            const stealLog = gameLog.slice().reverse().find(l => l.includes('stole') || l.includes('blocked steal') || l.includes('forfeited'));
+                            const stealLog = gameLog.slice().reverse().find(l => l.includes(`[${turnIndex}]`) && (l.includes('stole') || l.includes('blocked steal') || l.includes('forfeited')));
                             if (stealLog) {
-                              return { icon: '🏴\u200d☠️', action: 'Steal Result', xp: stealLog, color: '#ff006e' }
+                              const cleanLog = stealLog.split(`[${turnIndex}]`)[1].trim()
+                              return { icon: '🏴\u200d☠️', action: 'Steal Result', xp: cleanLog, color: '#ff006e' }
                             }
                           }
                           return { icon: '🏴\u200d☠️', action: 'Stealing from a player', xp: '+5 XP stolen', color: '#ff006e' }
@@ -2539,17 +2540,18 @@ export default function PlayGame() {
                           return { icon: '💰', action: 'Auction block', xp: 'Bid for 2x multiplier', color: '#ff9500' }
                         case 'governance':
                           if (turnPhase === 'finishing') {
-                            const govResultLog = gameLog.slice().reverse().find(l => l.includes('Proposal PASSED') || l.includes('Proposal FAILED'));
+                            const govResultLog = gameLog.slice().reverse().find(l => l.includes(`[${turnIndex}]`) && (l.includes('Proposal PASSED') || l.includes('Proposal FAILED')));
+                            let cleanResult = govResultLog ? govResultLog.split(`[${turnIndex}]`)[1].trim() : (govYesVotes > govNoVotes ? 'Proposal PASSED!' : 'Proposal FAILED')
                             return {
                               icon: '🟥',
                               action: 'Governance Result',
-                              xp: govResultLog ? `${govResultLog} (${govYesVotes}-${govNoVotes})` : (govYesVotes > govNoVotes ? `PASSED (${govYesVotes}-${govNoVotes})` : `FAILED (${govYesVotes}-${govNoVotes})`),
+                              xp: `${cleanResult} (${govYesVotes}-${govNoVotes})`,
                               color: '#ef4444'
                             }
                           }
                           return { icon: '🟥', action: 'Governance vote', xp: 'Community decision', color: '#ef4444' }
                         case 'danger':
-                          const dangerLog = gameLog.slice().reverse().find(l => l.includes('Danger:'))
+                          const dangerLog = gameLog.slice().reverse().find(l => l.includes(`[${turnIndex}]`) && l.includes('Danger:'))
                           return {
                             icon: '⚠️',
                             action: 'Danger! XP penalty',
@@ -2557,7 +2559,7 @@ export default function PlayGame() {
                             color: '#ff6400'
                           }
                         case 'hazard':
-                          const hazardLog = gameLog.slice().reverse().find(l => l.includes('Hazard:'))
+                          const hazardLog = gameLog.slice().reverse().find(l => l.includes(`[${turnIndex}]`) && l.includes('Hazard:'))
                           return {
                             icon: '💀',
                             action: 'Hazard! XP penalty',
