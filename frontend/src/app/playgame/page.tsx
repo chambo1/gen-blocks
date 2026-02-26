@@ -521,6 +521,11 @@ export default function PlayGame() {
             setAuctionHighestBidder(abidder === 'none' ? '' : abidder)
             setAuctionTurnIndex(aturn)
 
+            const gprop = mainParts[11] || ''
+            setGovernanceProposal(gprop === 'none' ? '' : gprop)
+            setGovYesVotes(parseInt(mainParts[12]) || 0)
+            setGovNoVotes(parseInt(mainParts[13]) || 0)
+
             const gvoters = mainParts[14] || ''
             setPendingGovVoters(gvoters ? gvoters.split(',') : [])
             const govTurnIdx = parseInt(mainParts[15] || '0') || 0
@@ -974,6 +979,11 @@ export default function PlayGame() {
       setAuctionCurrentBid(abid)
       setAuctionHighestBidder(abidder === 'none' ? '' : abidder)
       setAuctionTurnIndex(aturn)
+
+      const gprop = mainParts[11] || ''
+      setGovernanceProposal(gprop === 'none' ? '' : gprop)
+      setGovYesVotes(parseInt(mainParts[12]) || 0)
+      setGovNoVotes(parseInt(mainParts[13]) || 0)
 
       const gvoters = mainParts[14] || ''
       setPendingGovVoters(gvoters ? gvoters.split(',') : [])
@@ -2529,10 +2539,11 @@ export default function PlayGame() {
                           return { icon: '💰', action: 'Auction block', xp: 'Bid for 2x multiplier', color: '#ff9500' }
                         case 'governance':
                           if (turnPhase === 'finishing') {
+                            const govResultLog = gameLog.slice().reverse().find(l => l.includes('Proposal PASSED') || l.includes('Proposal FAILED'));
                             return {
                               icon: '🟥',
                               action: 'Governance Result',
-                              xp: (govYesVotes > govNoVotes) ? 'Proposal PASSED!' : 'Proposal FAILED',
+                              xp: govResultLog ? `${govResultLog} (${govYesVotes}-${govNoVotes})` : (govYesVotes > govNoVotes ? `PASSED (${govYesVotes}-${govNoVotes})` : `FAILED (${govYesVotes}-${govNoVotes})`),
                               color: '#ef4444'
                             }
                           }
