@@ -6,9 +6,20 @@ const contractAddress = typeof process !== 'undefined' && process.env?.NEXT_PUBL
   ? process.env.NEXT_PUBLIC_CONTRACT_ADDRESS
   : '0xaBeB325C86916535A25E5C39b3b49aD905080D31'
 export const CONTRACT_ADDRESS = contractAddress as Address
-export const GENLAYER_RPC = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_GENLAYER_RPC
+const rawRpc = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_GENLAYER_RPC
   ? process.env.NEXT_PUBLIC_GENLAYER_RPC
   : 'https://studio.genlayer.com/api'
+export const GENLAYER_RPC = rawRpc.trim()
+
+console.log('⛓️ GenLayer Config:', {
+  RPC: GENLAYER_RPC,
+  Contract: CONTRACT_ADDRESS,
+  ChainId: typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_GENLAYER_CHAIN_ID ? process.env.NEXT_PUBLIC_GENLAYER_CHAIN_ID : 61999
+})
+
+if (!GENLAYER_RPC.startsWith('http')) {
+  console.warn('⚠️ Invalid GENLAYER_RPC format:', GENLAYER_RPC)
+}
 
 export const GENLAYER_CHAIN_ID = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_GENLAYER_CHAIN_ID
   ? parseInt(process.env.NEXT_PUBLIC_GENLAYER_CHAIN_ID)
@@ -22,35 +33,35 @@ export const CONTRACT_ABI = [
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'join_room',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'start_game',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'roll_dice',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'leave_room',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   // Room info
   {
@@ -72,7 +83,7 @@ export const CONTRACT_ABI = [
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [{ type: 'bool' }],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'is_room_game_over',
@@ -144,7 +155,7 @@ export const CONTRACT_ABI = [
       { name: 'room_code', type: 'string' },
       { name: 'player', type: 'string' },
     ],
-    outputs: [{ type: 'bool' }],
+    outputs: [{ type: 'string' }],
   },
   // Board and game state
   {
@@ -162,7 +173,7 @@ export const CONTRACT_ABI = [
       { name: 'room_code', type: 'string' },
       { name: 'player', type: 'string' },
     ],
-    outputs: [{ type: 'bool' }],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'get_last_dice_roll',
@@ -193,7 +204,7 @@ export const CONTRACT_ABI = [
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'is_player_eliminated',
@@ -203,7 +214,7 @@ export const CONTRACT_ABI = [
       { name: 'room_code', type: 'string' },
       { name: 'player', type: 'string' },
     ],
-    outputs: [{ type: 'bool' }],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'get_room_log',
@@ -217,14 +228,14 @@ export const CONTRACT_ABI = [
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'handle_hazard_block',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'get_all_players',
@@ -248,7 +259,7 @@ export const CONTRACT_ABI = [
       { name: 'room_code', type: 'string' },
       { name: 'player', type: 'string' },
     ],
-    outputs: [{ type: 'bool' }],
+    outputs: [{ type: 'string' }],
   },
   // Turn timer
   {
@@ -256,7 +267,7 @@ export const CONTRACT_ABI = [
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [{ type: 'bool' }],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'get_turn_time_remaining',
@@ -267,31 +278,11 @@ export const CONTRACT_ABI = [
   },
   // Governance
   {
-    name: 'create_governance_proposal',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'room_code', type: 'string' },
-      { name: 'proposal_type', type: 'string' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'vote_on_proposal',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'room_code', type: 'string' },
-      { name: 'vote_yes', type: 'bool' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'execute_governance',
+    name: 'deliberate_governance',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'get_governance_proposal',
@@ -328,28 +319,28 @@ export const CONTRACT_ABI = [
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'handle_bonus_block',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'handle_mystery_block',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'handle_lucky_block',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'room_code', type: 'string' }],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'handle_steal_block',
@@ -359,7 +350,17 @@ export const CONTRACT_ABI = [
       { name: 'room_code', type: 'string' },
       { name: 'target_player', type: 'string' },
     ],
-    outputs: [],
+    outputs: [{ type: 'string' }],
+  },
+  {
+    name: 'respond_to_steal',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'room_code', type: 'string' },
+      { name: 'action', type: 'string' },
+    ],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'handle_governance_block',
@@ -367,9 +368,8 @@ export const CONTRACT_ABI = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'room_code', type: 'string' },
-      { name: 'vote', type: 'string' },
     ],
-    outputs: [],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'handle_auction_block',
@@ -377,9 +377,26 @@ export const CONTRACT_ABI = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'room_code', type: 'string' },
+    ],
+    outputs: [{ type: 'string' }],
+  },
+  {
+    name: 'respond_to_auction',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'room_code', type: 'string' },
+      { name: 'action', type: 'string' },
       { name: 'bid_amount', type: 'string' },
     ],
-    outputs: [],
+    outputs: [{ type: 'string' }],
+  },
+  {
+    name: 'end_turn',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'room_code', type: 'string' }],
+    outputs: [{ type: 'string' }],
   },
   {
     name: 'get_all_player_data',

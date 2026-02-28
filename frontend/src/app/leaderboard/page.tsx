@@ -31,7 +31,7 @@ export default function Leaderboard() {
         const periodParam = period === 'daily' ? 'daily' :
           period === 'weekly' ? 'weekly' : 'alltime'
 
-        const data = await readGenLayerContract('get_leaderboard', [periodParam])
+        const data = await readGenLayerContract('get_leaderboard', [periodParam], address)
 
         if (data && typeof data === 'string' && data.trim() !== '') {
           // Format: addr:xp:games:wins|addr:xp:games:wins|...

@@ -1,5 +1,7 @@
 "use client"
 
+import { useCallback } from "react"
+
 interface PlayerInfo {
   address: string
   position: number
@@ -18,9 +20,15 @@ interface PlayersDisplayProps {
 }
 
 export function PlayersDisplay({ players, currentPlayerAddress, boardLength }: PlayersDisplayProps) {
+  const normalizeAddr = useCallback((addr: string | undefined | null) => {
+    if (!addr) return ''
+    const clean = addr.toLowerCase().trim()
+    return clean.startsWith('0x') ? clean.slice(2) : clean
+  }, [])
+
   const formatAddress = (addr: string) => {
     if (!addr) return ''
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+    return `${addr.startsWith('0x') ? addr.slice(0, 6) : '0x' + addr.slice(0, 4)}...${addr.slice(-4)}`
   }
 
   const getPlayerColor = (index: number) => {
@@ -150,12 +158,12 @@ export function PlayersDisplay({ players, currentPlayerAddress, boardLength }: P
           {players.map((player, index) => (
             <div
               key={player.address}
-              className={`player-card ${player.isCurrentTurn ? 'active' : ''} ${player.address.toLowerCase() === currentPlayerAddress?.toLowerCase() ? 'you' : ''} ${player.isEliminated ? 'eliminated' : ''}`}
+              className={`player-card ${player.isCurrentTurn ? 'active' : ''} ${normalizeAddr(player.address) === normalizeAddr(currentPlayerAddress) ? 'you' : ''} ${player.isEliminated ? 'eliminated' : ''}`}
               style={{ borderColor: getPlayerColor(player.globalIndex) }}
             >
               <div className="player-info">
                 <div className="player-address" style={{ color: getPlayerColor(player.globalIndex) }}>
-                  {player.address.toLowerCase() === currentPlayerAddress?.toLowerCase() ? '👤 You' : formatAddress(player.address)}
+                  {normalizeAddr(player.address) === normalizeAddr(currentPlayerAddress) ? '👤 You' : formatAddress(player.address)}
                   {player.isCurrentTurn && !player.isEliminated && <span className="turn-badge" style={{ marginLeft: '0.5rem' }}>TURN</span>}
                   {player.isEliminated && <span className="turn-badge" style={{ marginLeft: '0.5rem', background: '#ff0000', color: '#fff' }}>ELIMINATED</span>}
                 </div>
