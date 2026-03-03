@@ -556,10 +556,22 @@ export default function PlayGame() {
       try {
         console.log('⛓️ Mega-Poll starting...')
         const megaData = await readGenLayerContract('get_full_game_state', [roomCode], address)
-        if (!megaData || typeof megaData !== 'string') return
+        if (!megaData || typeof megaData !== 'string') {
+          console.warn('⛓️ Mega-Poll: No data or invalid format received.')
+          return
+        }
+
+        if (megaData.startsWith('ERROR:')) {
+          console.error('❌ Contract view Error (megaData):', megaData)
+          return
+        }
 
         const parts = megaData.split('~')
-        if (parts.length < 4) return
+        if (parts.length < 4) {
+          console.error('❌ Mega-Poll: Malformed data or version mismatch. Received:', megaData)
+          console.warn('ℹ️ Tip: Ensure you have redeployed the contract with the newest changes.')
+          return
+        }
 
         const [playerData, govDataFull, logData, gameOver] = parts
 
@@ -570,8 +582,10 @@ export default function PlayGame() {
           govData = gParts[0] // Set proposal as main govData
           // We could also set reasoning here if needed, but it's handled in mainData
         }
+
+        // Re-check for nested errors
         if (playerData.startsWith('ERROR:')) {
-          console.error('❌ Contract View Error:', playerData)
+          console.error('❌ Contract View Error (playerData):', playerData)
           return
         }
 
