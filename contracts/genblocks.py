@@ -440,6 +440,9 @@ class GenBlocks(gl.Contract):
         """Roll dice and move"""
         try:
             self._check_room(room_code)
+            
+            phase = self.turn_phase.get(room_code)
+            if phase != "rolling": raise Exception(f"Phase must be 'rolling' (Current: {phase})")
             player_addr = self._get_sender()
             
             started = self.game_started.get(room_code)
@@ -493,8 +496,8 @@ class GenBlocks(gl.Contract):
             else:
                 self.turn_active_mult[room_code] = "1"
             
-            # Set to finishing phase
-            self.turn_phase[room_code] = "finishing"
+            # Set to acting phase - player must now perform a block action
+            self.turn_phase[room_code] = "acting"
             
             self._check_winners(room_code)
             return "Dice rolled"
@@ -752,6 +755,9 @@ class GenBlocks(gl.Contract):
         # Reset previous reasoning/proposal
         self.governance_reasoning[room_code] = ""
         self.governance_proposal[room_code] = "none"
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         
         # Transition to governing phase to show proposals to the user
         self.turn_phase[room_code] = "governing"
@@ -1237,6 +1243,9 @@ class GenBlocks(gl.Contract):
     @gl.public.write
     def handle_build_block(self, room_code: str) -> None:
         self._check_room(room_code)
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
         
@@ -1253,6 +1262,7 @@ class GenBlocks(gl.Contract):
         
         self.player_xp[key] = str(current_xp + xp_gain)
         self.player_combo[key] = str(current_combo + 1)
+        self.turn_phase[room_code] = "finishing"
         self._add_to_log(room_code, f"built (+{xp_gain} XP)", player_addr)
         
         if current_combo + 1 >= 3:
@@ -1264,8 +1274,12 @@ class GenBlocks(gl.Contract):
     
     @gl.public.write
     def handle_bonus_block(self, room_code: str) -> None:
+        self._check_room(room_code)
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         
         in_room = self.player_in_room.get(key)
         if not in_room:
@@ -1295,12 +1309,17 @@ class GenBlocks(gl.Contract):
             self.player_shields[key] = str(current_shields + 1)
             self._add_to_log(room_code, "Bonus: +1 Shield")
             
+        self.turn_phase[room_code] = "finishing"
         self._check_winners(room_code)
     
     @gl.public.write
     def handle_mystery_block(self, room_code: str) -> None:
+        self._check_room(room_code)
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         
         in_room = self.player_in_room.get(key)
         if not in_room:
@@ -1329,12 +1348,17 @@ class GenBlocks(gl.Contract):
             self.player_shields[key] = str(current_shields + 1)
             self._add_to_log(room_code, "Mystery: Shield Found")
             
+        self.turn_phase[room_code] = "finishing"
         self._check_winners(room_code)
     
     @gl.public.write
     def handle_lucky_block(self, room_code: str) -> None:
+        self._check_room(room_code)
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         
         in_room = self.player_in_room.get(key)
         if not in_room:
@@ -1367,8 +1391,9 @@ class GenBlocks(gl.Contract):
             self.player_multiplier[key] = str(mults + 1)
             self._add_to_log(room_code, f"Lucky: 2X Multiplier Earned!")
         else:
-            self._add_to_log(room_code, "Lucky: No Reward")
+            self._add_to_log(room_code, "Lucky: No Reward", player_addr)
             
+        self.turn_phase[room_code] = "finishing"
         self._check_winners(room_code)
     
     @gl.public.write
@@ -1395,6 +1420,9 @@ class GenBlocks(gl.Contract):
         if not target_in_room:
             raise Exception("Target not in room")
             
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
+
         # Transition to steal response phase
         self.turn_phase[room_code] = "stealing_response"
         self.pending_steal_target[room_code] = target_player.lower()
@@ -1535,6 +1563,9 @@ class GenBlocks(gl.Contract):
     @gl.public.write
     def handle_auction_block(self, room_code: str) -> None:
         self._check_room(room_code)
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
         
@@ -1621,6 +1652,9 @@ class GenBlocks(gl.Contract):
         self._check_room(room_code)
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
 
         # Validate turn ownership
         players_str = self.players_list.get(room_code)
@@ -1642,6 +1676,10 @@ class GenBlocks(gl.Contract):
 
     @gl.public.write
     def handle_danger_block(self, room_code: str) -> None:
+        self._check_room(room_code)
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
         
@@ -1660,11 +1698,16 @@ class GenBlocks(gl.Contract):
         penalty = base_penalty * active_mult
         
         self._deduct_xp(room_code, player_addr, penalty)
+        self.turn_phase[room_code] = "finishing"
         self._add_to_log(room_code, f"lost {penalty} XP", player_addr)
         self._check_winners(room_code)
 
     @gl.public.write
     def handle_hazard_block(self, room_code: str) -> None:
+        self._check_room(room_code)
+        
+        phase = self.turn_phase.get(room_code)
+        if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
         
@@ -1682,6 +1725,7 @@ class GenBlocks(gl.Contract):
         active_mult = int(self.turn_active_mult.get(room_code) or "1")
         penalty = base_penalty * active_mult
         
+        self.turn_phase[room_code] = "finishing"
         self._deduct_xp(room_code, player_addr, penalty)
         self._add_to_log(room_code, f"lost {penalty} XP", player_addr)
         self._check_winners(room_code)
