@@ -67,7 +67,6 @@ export async function writeGenLayerContract(
                             hash,
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             status: 'ACCEPTED' as any,
-                            timeout: 2000,
                         })
                         if (receipt) {
                             console.log(`Transaction ${hash} ACCEPTED!`)
@@ -80,7 +79,6 @@ export async function writeGenLayerContract(
                                 hash,
                                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 status: 'FINALIZED' as any,
-                                timeout: 1000,
                             })
                             if (receipt2) {
                                 console.log(`Transaction ${hash} FINALIZED (accepted)!`)
