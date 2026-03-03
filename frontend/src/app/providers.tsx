@@ -36,10 +36,11 @@ const queryClient = new QueryClient()
 
 export function Providers({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false)
+  const [config, setConfig] = useState<any>(null)
 
-  // Create config once using useRef to avoid SSR + IndexedDB errors from WalletConnect
-  const configRef = useRef(
-    getDefaultConfig({
+  useEffect(() => {
+    // Initialize config ONLY in the browser
+    const web3Config = getDefaultConfig({
       appName: "GenBlocks",
       projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID",
       chains: [genlayerTestnet],
@@ -47,18 +48,17 @@ export function Providers({ children }: { children: ReactNode }) {
         [GENLAYER_CHAIN_ID]: http(GENLAYER_RPC),
       },
     })
-  )
 
-  useEffect(() => {
+    setConfig(web3Config)
     setMounted(true)
   }, [])
 
-  if (!mounted) {
+  if (!mounted || !config) {
     return null
   }
 
   return (
-    <WagmiProvider config={configRef.current}>
+    <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider>
           {children}
