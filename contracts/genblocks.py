@@ -1136,8 +1136,12 @@ class GenBlocks(gl.Contract):
             results.append(f"{addr.lower()}:{xp}:{pos}:{shields}:{combo}:{is_mult}:{elim}:{roll}")
         
         players_data = "|".join(results)
+        # Sanitize reasoning and proposal to avoid corrupting the semicolon-separated string
+        clean_prop = gov_prop.replace(';', ':')
+        clean_reason = gov_reason.replace(';', '.')
+        
         # Returns consolidated state: turn;start;phase;players;steal_target;steal_attacker;auction_bid;auction_bidder;auction_turn;auction_passed;gov_active;gov_prop;gov_reasoning
-        return f"{turn_idx};{0};{phase};{players_data};{pending_target};{pending_attacker};{auction_bid};{auction_bidder};{auction_turn};{auction_passed};{gov_active};{gov_prop};{gov_reason}"
+        return f"{turn_idx};0;{phase};{players_data};{pending_target};{pending_attacker};{auction_bid};{auction_bidder};{auction_turn};{auction_passed};{gov_active};{clean_prop};{clean_reason}"
 
     @gl.public.view
     def get_active_room(self, player_addr: str) -> str:
@@ -1213,8 +1217,7 @@ class GenBlocks(gl.Contract):
         
         if not active or not proposal:
             return "none"
-        
-        return f"{proposal}#{reasoning}"
+        return f"{proposal}|{reasoning}"
 
     @gl.public.view
     def get_full_game_state(self, room_code: str) -> str:
@@ -1222,10 +1225,11 @@ class GenBlocks(gl.Contract):
         try:
             player_data = self.get_all_player_data(room_code)
             gov_proposal = self.get_governance_proposal(room_code)
-            room_log = self.room_log.get(room_code) or ""
+            room_log = self.room_log.get(room_code) or "none"
             game_over = self.is_room_game_over(room_code)
             
-            return f"{player_data}#{gov_proposal}#{room_log}#{game_over}"
+            # Use ~ as a unique separator between main modules
+            return f"{player_data}~{gov_proposal}~{room_log}~{game_over}"
         except Exception as e:
             return f"ERROR: {str(e)}"
     

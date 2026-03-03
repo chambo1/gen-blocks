@@ -558,7 +558,18 @@ export default function PlayGame() {
         const megaData = await readGenLayerContract('get_full_game_state', [roomCode], address)
         if (!megaData || typeof megaData !== 'string') return
 
-        const [playerData, govData, logData, gameOver] = megaData.split('#')
+        const parts = megaData.split('~')
+        if (parts.length < 4) return
+
+        const [playerData, govDataFull, logData, gameOver] = parts
+
+        // Handle governance split (proposal|reasoning)
+        let govData = govDataFull
+        if (govDataFull && govDataFull !== 'none') {
+          const gParts = govDataFull.split('|')
+          govData = gParts[0] // Set proposal as main govData
+          // We could also set reasoning here if needed, but it's handled in mainData
+        }
         if (playerData.startsWith('ERROR:')) {
           console.error('❌ Contract View Error:', playerData)
           return
