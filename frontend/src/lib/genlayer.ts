@@ -399,6 +399,13 @@ export const CONTRACT_ABI = [
     outputs: [{ type: 'string' }],
   },
   {
+    name: 'force_end_turn',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'room_code', type: 'string' }],
+    outputs: [{ type: 'string' }],
+  },
+  {
     name: 'get_all_player_data',
     type: 'function',
     stateMutability: 'view',

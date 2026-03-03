@@ -163,7 +163,8 @@ export function PlayersDisplay({ players, currentPlayerAddress, boardLength }: P
             >
               <div className="player-info">
                 <div className="player-address" style={{ color: getPlayerColor(player.globalIndex) }}>
-                  {normalizeAddr(player.address) === normalizeAddr(currentPlayerAddress) ? '👤 You' : formatAddress(player.address)}
+                  {normalizeAddr(player.address) === normalizeAddr(currentPlayerAddress) ? '👤 YOU' : `P${player.globalIndex + 1}`}
+                  <span style={{ fontSize: '0.7rem', opacity: 0.6, marginLeft: '0.5rem' }}>({formatAddress(player.address)})</span>
                   {player.isCurrentTurn && !player.isEliminated && <span className="turn-badge" style={{ marginLeft: '0.5rem' }}>TURN</span>}
                   {player.isEliminated && <span className="turn-badge" style={{ marginLeft: '0.5rem', background: '#ff0000', color: '#fff' }}>ELIMINATED</span>}
                 </div>

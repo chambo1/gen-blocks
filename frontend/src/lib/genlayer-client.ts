@@ -129,7 +129,8 @@ export async function readGenLayerContract(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
         console.error(`GenLayer read error [${functionName}]:`, error)
-        if (error.cause) console.error('Error cause:', error.cause)
+        if (error.cause) console.error('Error cause detail:', error.cause)
+        if (error.details) console.error('Error details:', error.details)
         throw new Error(`Read failed for ${functionName}: ${error.message || 'Unknown error'}`)
     }
 }

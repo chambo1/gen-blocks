@@ -106,6 +106,11 @@ export default function PlayGame() {
   const [currentTurnAddress, setCurrentTurnAddress] = useState<string>('')
   const [isLocalPlayerEliminated, setIsLocalPlayerEliminated] = useState(false)
 
+  // Turn timer state
+  const [turnTimer, setTurnTimer] = useState(30)
+  const [turnTimerPhase, setTurnTimerPhase] = useState<'roll' | 'action' | 'none'>('none')
+  const turnTimerSkipping = useRef(false)
+
   // Contract State (replaced Wagmi hooks)
   const [rawPlayerCount, setRawPlayerCount] = useState<string>('0')
   const [rawRoomCreator, setRawRoomCreator] = useState<string>('')
@@ -287,7 +292,7 @@ export default function PlayGame() {
   useEffect(() => {
     if (turnPhase === 'auctioning' && !hasRespondedToAuction && allGamePlayers.length > 0) {
       const currentAuctionAddr = allGamePlayers[auctionTurnIndex % allGamePlayers.length]?.address;
-      if (currentAuctionAddr?.toLowerCase() === address?.toLowerCase()) {
+      if (normalizeAddr(currentAuctionAddr) === normalizeAddr(address)) {
         if (auctionTimeleft > 0) {
           const timerId = setTimeout(() => {
             setAuctionTimeleft(prev => prev - 1)
@@ -314,7 +319,7 @@ export default function PlayGame() {
 
   // Timer for steal response
   useEffect(() => {
-    if (turnPhase === 'stealing_response' && pendingStealTarget.toLowerCase() === address?.toLowerCase() && !hasRespondedToSteal) {
+    if (turnPhase === 'stealing_response' && normalizeAddr(pendingStealTarget) === normalizeAddr(address) && !hasRespondedToSteal) {
       if (stealTimeleft > 0) {
         const timerId = setTimeout(() => {
           setStealTimeleft(prev => prev - 1)
@@ -326,6 +331,63 @@ export default function PlayGame() {
       }
     }
   }, [turnPhase, pendingStealTarget, address, stealTimeleft, hasRespondedToSteal])
+
+  // Turn timer: 30s to roll, 30s to act
+  // Start roll timer for EVERYONE when rolling phase or action phase begins
+  useEffect(() => {
+    // Determine whose turn it is
+    const activePlayerAddr = allGamePlayers.find(p => p.isCurrentTurn)?.address || currentTurnAddress
+    const isActivePlayerEliminated = allGamePlayers.find(p => p.address.toLowerCase() === activePlayerAddr.toLowerCase())?.isEliminated || false
+
+    if (turnPhase === 'rolling' && gameState === 'playing' && !isRolling && !isActivePlayerEliminated) {
+      setTurnTimer(30)
+      setTurnTimerPhase('roll')
+      turnTimerSkipping.current = false
+    } else if (turnPhase === 'finishing' && gameState === 'playing' && !actionCompleted && !isActivePlayerEliminated) {
+      // After rolling, if on an interactive block that needs action (or not)
+      setTurnTimer(30)
+      setTurnTimerPhase('action')
+      turnTimerSkipping.current = false
+    } else if (turnPhase === 'stealing_response' || turnPhase === 'auctioning' || turnPhase === 'governing') {
+      setTurnTimerPhase('none')
+    }
+  }, [turnPhase, gameState, isRolling, actionCompleted, currentTurnAddress, turnIndex, allGamePlayers])
+
+  // Turn timer countdown
+  useEffect(() => {
+    if (turnTimerPhase === 'none') return
+    // Allow the timer to go slightly negative so watchers can trigger the skip
+    if (turnTimer > -5) {
+      const timerId = setTimeout(() => {
+        setTurnTimer(prev => prev - 1)
+      }, 1000)
+      return () => clearTimeout(timerId)
+    }
+  }, [turnTimer, turnTimerPhase])
+
+  // Timer expiry actions
+  useEffect(() => {
+    if (turnTimerPhase === 'none' || turnTimerSkipping.current) return
+
+    if (turnTimer === 0 && isMyTurn && address && roomCode) {
+      // It's MY turn and timer hit 0
+      turnTimerSkipping.current = true
+      if (turnTimerPhase === 'roll') {
+        addLog('⏰ Turn timer expired! Auto-skipping...')
+        writeGenLayerContract('force_end_turn', [roomCode], address).then(({ wait }) => wait()).catch(() => { })
+      } else if (turnTimerPhase === 'action') {
+        addLog('⏰ Action timer expired! Auto-finishing turn...')
+        handleFinishTurn()
+      }
+      setTurnTimerPhase('none')
+    } else if (turnTimer < -3 && !isMyTurn && address && roomCode) {
+      // It's NOT my turn and the timer is deep into negative (grace period passed)
+      turnTimerSkipping.current = true
+      addLog('⏰ Active player timed out! Forcing turn skip...')
+      writeGenLayerContract('force_end_turn', [roomCode], address).then(({ wait }) => wait()).catch(() => { })
+      setTurnTimerPhase('none')
+    }
+  }, [turnTimer, turnTimerPhase, isMyTurn, turnIndex, address, roomCode])
 
   // Derived state for the last dice roll to reduce RPC calls
   const localPlayer = allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(address))
@@ -497,15 +559,33 @@ export default function PlayGame() {
         if (!megaData || typeof megaData !== 'string') return
 
         const [playerData, govData, logData, gameOver] = megaData.split('#')
+        if (playerData.startsWith('ERROR:')) {
+          console.error('❌ Contract View Error:', playerData)
+          return
+        }
 
         // 1. Process Player Data
+        let results: Player[] = []
         if (playerData) {
           console.log('[DEBUG] Mega-Poll PlayerData received:', playerData)
           const mainParts = playerData.split(';')
           if (mainParts.length >= 4) {
             const turnIdx = parseInt(mainParts[0]) || 0
-            setTurnIndex(turnIdx)
             const phase = mainParts[2] as 'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
+
+            // IF turn or phase has changed, reset the timer IMMEDIATELY in this state batch
+            // This prevents other effects from firing on a stale (0 or negative) timer
+            if (turnIdx !== turnIndex || phase !== turnPhase) {
+              setTurnTimer(30)
+              setTurnTimerPhase('none') // Let the turn-reset effect re-enable the correct phase
+              turnTimerSkipping.current = false
+
+              if (turnIdx !== turnIndex) {
+                setActionCompleted(false)
+              }
+            }
+            setTurnIndex(turnIdx)
+            setTurnPhase(phase)
             const pTarget = mainParts[4] || ''
             const pAttacker = mainParts[5] || ''
             setPendingStealTarget(pTarget === 'none' ? '' : pTarget)
@@ -520,15 +600,14 @@ export default function PlayGame() {
 
             const gprop = mainParts[11] || ''
             setGovernanceProposal(gprop === 'none' ? '' : gprop)
-            setGovYesVotes(parseInt(mainParts[12]) || 0)
-            setGovNoVotes(parseInt(mainParts[13]) || 0)
+            const reasoning = mainParts[12] || ''
+            setGovernanceReasoning(reasoning === 'none' ? '' : reasoning)
 
-            const gvoters = mainParts[14] || ''
-            setPendingGovVoters(gvoters ? gvoters.split(',') : [])
-            const govTurnIdx = parseInt(mainParts[15] || '0') || 0
-            setGovTurnIndex(govTurnIdx)
-            const reasoning = mainParts[16] || ''
-            setGovernanceReasoning(reasoning)
+            // Legacy cleanup
+            setGovYesVotes(0)
+            setGovNoVotes(0)
+            setPendingGovVoters([])
+            setGovTurnIndex(0)
 
             if (phase !== 'stealing_response') {
               setStealTimeleft(40)
@@ -542,24 +621,20 @@ export default function PlayGame() {
               setGovTimeleft(30)
               setHasRespondedToGov(false)
             }
+
+            setTurnPhase(phase)
+
             const playerStrings = mainParts[3].split('|')
             console.log('[DEBUG] Mega-Poll PARSED turnIdx:', turnIdx, 'phase:', phase, 'playerStrings:', playerStrings)
 
-            if (turnIdx === lastFinishedTurnIdxRef.current && phase === 'finishing') {
-              console.log('Skipping stale phase mapping: we already completed this turn.')
-              setTurnPhase('rolling')
-            } else {
-              setTurnPhase(phase)
-            }
-
-            const results: Player[] = playerStrings.map((pStr: string, idx: number) => {
+            results = playerStrings.map((pStr: string, idx: number) => {
               const parts = pStr.split(':')
               if (parts.length < 7) return null
               const [addr, xp, pos, shields, combo, mult, elim, roll] = parts
               const currentIdx = playerStrings.length > 0 ? (turnIdx % playerStrings.length) : 0
               return {
                 address: addr,
-                name: addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : 'Unknown',
+                name: normalizeAddr(addr) === normalizeAddr(address) ? 'YOU' : `P${idx + 1}`,
                 xp: parseInt(xp) || 0,
                 position: parseInt(pos) || 0,
                 shields: parseInt(shields) || 0,
@@ -630,7 +705,17 @@ export default function PlayGame() {
               }
 
               setGameLog(prev => {
-                const logMsg = `${new Date().toLocaleTimeString()}: ⛓️ ${entry}`
+                // Determine our player label (e.g., P1, P2)
+                const me = results.find(p => normalizeAddr(p.address) === normalizeAddr(address))
+                const myPLabel = me ? `P${me.globalIndex + 1}` : null
+
+                let processedEntry = entry
+                if (myPLabel) {
+                  // Replace our label with 'YOU'
+                  processedEntry = processedEntry.replace(new RegExp(`\\b${myPLabel}\\b`, 'g'), 'YOU')
+                }
+
+                const logMsg = `${new Date().toLocaleTimeString()}: ⛓️ ${processedEntry}`
                 if (!prev.includes(logMsg)) return [...prev, logMsg]
                 return prev
               })
@@ -930,6 +1015,7 @@ export default function PlayGame() {
     setIsRolling(true)
     setActionPerformed(false) // reset so action buttons reappear for this turn
     setActionCompleted(false) // reset single-action tracker
+    setTurnTimerPhase('none') // stop the roll timer
     setDiceValue(null)
     addLog('🎲 Rolling dice...')
     // Capture XP before roll so we can show delta in turn summary
@@ -969,8 +1055,19 @@ export default function PlayGame() {
       }
 
       const turnIdx = parseInt(mainParts[0]) || 0
-      setTurnIndex(turnIdx)
       const phase = mainParts[2] as 'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
+
+      // Reset timer immediately if turn or phase changed
+      if (turnIdx !== turnIndex || phase !== turnPhase) {
+        setTurnTimer(30)
+        setTurnTimerPhase('none')
+        turnTimerSkipping.current = false
+        if (turnIdx !== turnIndex) {
+          setActionCompleted(false)
+        }
+      }
+      setTurnIndex(turnIdx)
+      setTurnPhase(phase)
       const pTarget = mainParts[4] || ''
       const pAttacker = mainParts[5] || ''
       setPendingStealTarget(pTarget === 'none' ? '' : pTarget)
@@ -985,13 +1082,14 @@ export default function PlayGame() {
 
       const gprop = mainParts[11] || ''
       setGovernanceProposal(gprop === 'none' ? '' : gprop)
-      setGovYesVotes(parseInt(mainParts[12]) || 0)
-      setGovNoVotes(parseInt(mainParts[13]) || 0)
+      const reasoning = mainParts[12] || ''
+      setGovernanceReasoning(reasoning === 'none' ? '' : reasoning)
 
-      const gvoters = mainParts[14] || ''
-      setPendingGovVoters(gvoters ? gvoters.split(',') : [])
-      const govTurnIdx = parseInt(mainParts[15] || '0') || 0
-      setGovTurnIndex(govTurnIdx)
+      // Legacy cleanup
+      setGovYesVotes(0)
+      setGovNoVotes(0)
+      setPendingGovVoters([])
+      setGovTurnIndex(0)
 
       if (phase !== 'stealing_response') {
         setStealTimeleft(40)
@@ -1017,7 +1115,7 @@ export default function PlayGame() {
         const currentIdx = turnIdx % playerStrings.length
         return {
           address: addr,
-          name: `${addr.slice(0, 6)}...${addr.slice(-4)}`,
+          name: normalizeAddr(addr) === normalizeAddr(address) ? 'YOU' : `P${idx + 1}`,
           xp: parseInt(xp) || 0,
           position: parseInt(pos) || 0,
           shields: parseInt(shields) || 0,
@@ -1038,11 +1136,11 @@ export default function PlayGame() {
         const currentIdx = turnIdx % results.length
         const currentTurnAddr = results[currentIdx].address
         setCurrentTurnAddress(currentTurnAddr)
-        setIsMyTurn(currentTurnAddr.toLowerCase() === address.toLowerCase())
+        setIsMyTurn(normalizeAddr(currentTurnAddr) === normalizeAddr(address))
       }
 
       // 5. Find our updated data and show the result
-      const me = results.find(p => p.address.toLowerCase() === address.toLowerCase())
+      const me = results.find(p => normalizeAddr(p.address) === normalizeAddr(address))
       if (me) {
         const newRoll = me.lastDiceRoll
         const newPos = me.position
@@ -1097,6 +1195,7 @@ export default function PlayGame() {
     if (!address || !roomCode || isFinishingTurnOnChain) return
 
     setIsFinishingTurnOnChain(true)
+    setTurnTimerPhase('none') // stop action timer
 
     try {
       const { wait } = await writeGenLayerContract('end_turn', [roomCode], address)
@@ -1160,6 +1259,7 @@ export default function PlayGame() {
     addLog('Building contract on blockchain...')
     setShowActionPrompt(false)
     setActionPerformed(true)
+    setTurnTimerPhase('none') // stop action timer
 
     try {
       const { hash: txHash, wait } = await writeGenLayerContract('handle_build_block', [roomCode], address)
@@ -1223,6 +1323,7 @@ export default function PlayGame() {
     setShowActionPrompt(false)
     try {
       addLog(`💰 Getting ready for auction...`)
+      setTurnTimerPhase('none') // stop action timer
       const { wait } = await writeGenLayerContract('handle_auction_block', [roomCode], address)
       await wait()
       addLog(`✅ Auction started!`)
@@ -1258,6 +1359,7 @@ export default function PlayGame() {
     addLog(`Attempting to steal from ${targetPlayer.name} on blockchain...`)
     setShowStealPrompt(false)
     setActionPerformed(true)
+    setTurnTimerPhase('none') // stop action timer
 
     try {
       const { hash: txHash, wait } = await writeGenLayerContract('handle_steal_block', [roomCode, targetPlayer.address], address)
@@ -1279,12 +1381,13 @@ export default function PlayGame() {
     if (!address || !roomCode) return
     setActionPerformed(true)
     setShowActionPrompt(false)
+    setTurnTimerPhase('none') // stop action timer
     try {
       addLog(`⚖️ Initiating AI Governance event...`)
       const { wait } = await writeGenLayerContract('handle_governance_block', [roomCode], address)
       await wait()
       addLog(`✅ AI Governance phase active!`)
-      setActionCompleted(true)
+      // We don't set actionCompleted yet because they still need to deliberate
       setActionPerformed(false)
     } catch (err: any) {
       console.error('Governance start failed:', err)
@@ -1302,6 +1405,7 @@ export default function PlayGame() {
       const { wait } = await writeGenLayerContract('deliberate_governance', [roomCode], address)
       await wait()
       addLog(`✅ AI deliberation complete! Result processed.`)
+      setActionCompleted(true) // Now they can finish turn
       setIsDeliberating(false)
     } catch (err: any) {
       console.error('AI Deliberation failed:', err)
@@ -2296,7 +2400,7 @@ export default function PlayGame() {
 
                   {!isRoomCreator && roomCreator && (
                     <p style={{ color: '#ffbe0b', fontSize: '1rem', marginBottom: '1rem', fontFamily: 'Space Mono' }}>
-                      ⏳ Waiting for {roomCreator.slice(0, 6)}...{roomCreator.slice(-4)} to start the game
+                      ⏳ Waiting for {allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(roomCreator))?.name || (roomCreator || '').slice(0, 6)} to start the game
                     </p>
                   )}
 
@@ -2362,7 +2466,29 @@ export default function PlayGame() {
                       }}>
                         {isMyTurn ? '🌟 IT IS YOUR TURN!' : '⌛ WAITING FOR TURN...'}
                       </p>
-
+                      {turnTimerPhase !== 'none' && (
+                        <div style={{
+                          marginTop: '0.8rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.6rem'
+                        }}>
+                          <span style={{
+                            fontFamily: 'Orbitron',
+                            fontSize: '1.6rem',
+                            fontWeight: '900',
+                            color: turnTimer <= 10 ? '#ef4444' : turnTimer <= 20 ? '#ffbe0b' : '#00fff9',
+                            textShadow: turnTimer <= 10 ? '0 0 15px rgba(239,68,68,0.6)' : 'none',
+                            animation: turnTimer <= 5 ? 'pulse 0.5s infinite' : 'none'
+                          }}>
+                            ⏱️ {turnTimer}s
+                          </span>
+                          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem' }}>
+                            {turnTimerPhase === 'roll' ? 'to roll' : 'to act'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2385,16 +2511,16 @@ export default function PlayGame() {
                             <div className="player-markers-container">
                               {/* Player markers grid layout inside the block */}
                               {allGamePlayers.map((p) => (
-                                p.position === index && (
+                                p.position === index && !p.isEliminated && (
                                   <div
                                     key={p.address}
-                                    className={`player-marker pos-${p.globalIndex % 4} ${p.address.toLowerCase() === address?.toLowerCase() ? 'you' : ''}`}
+                                    className={`player-marker pos-${p.globalIndex % 4} ${normalizeAddr(p.address) === normalizeAddr(address) ? 'you' : ''}`}
                                     style={{
                                       backgroundColor: ['#00fff9', '#ff006e', '#ffbe0b', '#4CAF50'][p.globalIndex % 4],
-                                      borderColor: p.address.toLowerCase() === address?.toLowerCase() ? '#fff' : 'transparent'
+                                      borderColor: normalizeAddr(p.address) === normalizeAddr(address) ? '#fff' : 'transparent'
                                     }}
                                   >
-                                    {p.address.toLowerCase() === address?.toLowerCase() ? 'YOU' : `P${p.globalIndex + 1}`}
+                                    {normalizeAddr(p.address) === normalizeAddr(address) ? 'YOU' : `P${p.globalIndex + 1}`}
                                   </div>
                                 )
                               ))}
@@ -2438,7 +2564,7 @@ export default function PlayGame() {
                         >
                           {isLocalPlayerEliminated ? '💀 ELIMINATED' :
                             (turnPhase === 'finishing') ? '⏳ WAITING FOR TURN SUMMARY' :
-                              (!isMyTurn) ? `⏳ WAIT (TURN: ${(currentTurnAddress || '').slice(0, 6)})` :
+                              (!isMyTurn) ? `⏳ WAIT (TURN: ${allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(currentTurnAddress))?.name || (currentTurnAddress || '').slice(0, 6)})` :
                                 (isRolling ? '🎲 Rolling...' : '🎲 Roll Dice')}
                         </button>
                       </div>
@@ -2482,24 +2608,24 @@ export default function PlayGame() {
                   {/* ====== UNIFIED TURN SUMMARY FULLSCREEN POPUP ====== */}
                   {(turnPhase === 'finishing' || turnPhase === 'stealing_response' || turnPhase === 'auctioning' || turnPhase === 'governing') && (() => {
                     const isStealingResponse = turnPhase === 'stealing_response'
-                    const isStealTarget = pendingStealTarget.toLowerCase() === address?.toLowerCase()
+                    const isStealTarget = normalizeAddr(pendingStealTarget) === normalizeAddr(address)
                     const isAuctioning = turnPhase === 'auctioning'
                     const auctionCurrentAddr = allGamePlayers.length > 0 ? (allGamePlayers[auctionTurnIndex % allGamePlayers.length]?.address || '') : ''
-                    const isMyAuctionTurn = auctionCurrentAddr.toLowerCase() === address?.toLowerCase()
+                    const isMyAuctionTurn = normalizeAddr(auctionCurrentAddr) === normalizeAddr(address)
 
-                    const isGoverning = turnPhase === 'governing'
-                    // isMyGovTurn: it's my turn only if I'm the player at govTurnIndex AND still in pending voters
-                    const currentGovVoter = allGamePlayers[govTurnIndex % allGamePlayers.length]
-                    const isMyGovTurn = currentGovVoter?.address?.toLowerCase() === address?.toLowerCase()
-                      && pendingGovVoters.includes(address?.toLowerCase() || '')
-
-                    const currentPlayer = allGamePlayers.find(p => p.address.toLowerCase() === (currentTurnAddress || '').toLowerCase())
+                    const currentPlayer = allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(currentTurnAddress))
                     const landedBlock = currentPlayer ? board[currentPlayer.position] : null
                     const roll = currentPlayer?.lastDiceRoll ?? 0
                     const isActivePlayer = isMyTurn
 
-                    // Hide the Turn Summary completely for inactive players unless they are actively involved in an interaction
-                    const shouldShowPopup = isActivePlayer || isAuctioning || isGoverning || (isStealingResponse && isStealTarget)
+                    const isGoverning = turnPhase === 'governing' || (turnPhase === 'finishing' && landedBlock?.type === 'governance')
+
+                    const currentGovVoter = allGamePlayers[govTurnIndex % allGamePlayers.length]
+                    const isMyGovTurn = normalizeAddr(currentGovVoter?.address) === normalizeAddr(address)
+                      && pendingGovVoters.some(v => normalizeAddr(v) === normalizeAddr(address))
+
+                    // Show the Turn Summary for everyone during these phases
+                    const shouldShowPopup = true
                     if (!shouldShowPopup) return null
 
 
@@ -2589,7 +2715,7 @@ export default function PlayGame() {
                             xp: hazardLog ? hazardLog.split('Hazard:')[1].trim() : `-${currentPlayer?.hasMultiplier ? 10 : 5} XP`,
                             color: '#b400b4'
                           }
-                        case 'end': return { icon: '☠️', action: 'END Block hit!', xp: '-10 XP + Eliminated', color: '#ff0000' }
+                        case 'end': return { icon: '☠️', action: 'ELIMINATED!', xp: 'Hit the END block: -10 XP & OUT of the game', color: '#ff0000' }
                         case 'start': return { icon: '🏁', action: 'Passed START', xp: '+10 XP', color: '#00fff9' }
                         default: return null
                       }
@@ -2608,17 +2734,24 @@ export default function PlayGame() {
                         backdropFilter: 'blur(8px)',
                         padding: '1rem',
                       }}>
-                        <div style={{
-                          background: 'linear-gradient(135deg, rgba(10,14,39,0.98) 0%, rgba(20,28,70,0.98) 100%)',
-                          border: `2px solid ${landedBlock ? (xpInfo?.color || '#00fff9') : '#00fff9'}`,
-                          borderRadius: '20px',
-                          padding: '2.5rem',
-                          maxWidth: '480px',
-                          width: '100%',
-                          boxShadow: `0 0 60px ${xpInfo?.color || '#00fff9'}55, 0 20px 40px rgba(0,0,0,0.8)`,
-                          fontFamily: 'Orbitron, sans-serif',
-                          animation: 'fadeInScale 0.3s ease-out',
-                        }}>
+                        <div
+                          className="custom-scrollbar"
+                          style={{
+                            background: 'linear-gradient(135deg, rgba(10,14,39,0.98) 0%, rgba(20,28,70,0.98) 100%)',
+                            border: `2px solid ${landedBlock ? (xpInfo?.color || '#00fff9') : '#00fff9'}`,
+                            borderRadius: '20px',
+                            padding: '2.5rem',
+                            maxWidth: '480px',
+                            maxHeight: '85vh',
+                            width: '100%',
+                            boxShadow: `0 0 60px ${xpInfo?.color || '#00fff9'}55, 0 20px 40px rgba(0,0,0,0.8)`,
+                            fontFamily: 'Orbitron, sans-serif',
+                            animation: 'fadeInScale 0.3s ease-out',
+                            position: 'relative',
+                            overflowY: 'auto'
+                          }}>
+                          {/* Inactive Player Overlay - prevents interaction but allows viewing */}
+
                           {/* Header */}
                           <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
                             <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>
@@ -2628,7 +2761,7 @@ export default function PlayGame() {
                               📊 TURN SUMMARY
                             </h2>
                             <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem', marginTop: '0.3rem' }}>
-                              {isActivePlayer ? '🌟 YOUR TURN' : `PLAYER ${(currentPlayer?.globalIndex ?? 0) + 1}'S TURN`}
+                              {isActivePlayer ? '🌟 YOUR TURN' : `P${(currentPlayer?.globalIndex ?? 0) + 1}'S TURN`}
                             </p>
                             {currentPlayer?.hasMultiplier && (
                               <div style={{
@@ -2709,7 +2842,7 @@ export default function PlayGame() {
                               {isStealTarget ? (
                                 <>
                                   <p style={{ color: '#ff006e', fontSize: '1.1rem', marginBottom: '1rem', fontWeight: 'bold' }}>
-                                    ⚠️ {pendingStealAttacker.slice(0, 6)} is trying to steal 5 XP!
+                                    ⚠️ {allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(pendingStealAttacker))?.name || pendingStealAttacker.slice(0, 6)} is trying to steal 5 XP!
                                   </p>
                                   <div style={{ marginBottom: '1.5rem', color: stealTimeleft <= 10 ? '#ef4444' : '#00fff9', fontSize: '1.2rem', fontWeight: 'bold' }}>
                                     ⏱️ {stealTimeleft}s remaining to decide
@@ -2724,7 +2857,7 @@ export default function PlayGame() {
                                       🛡️ Use Shield ({shields} left)
                                     </button>
                                     {(() => {
-                                      const attacker = allGamePlayers.find(p => p.address.toLowerCase() === pendingStealAttacker.toLowerCase());
+                                      const attacker = allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(pendingStealAttacker));
                                       const forfeitCost = 7 * (attacker?.hasMultiplier ? 2 : 1);
                                       return (
                                         <button
@@ -2749,7 +2882,7 @@ export default function PlayGame() {
                               ) : (
                                 <div>
                                   <p style={{ color: '#ffbe0b', fontSize: '1rem', marginBottom: '0.5rem' }}>
-                                    ⌛ Waiting for {pendingStealTarget.slice(0, 6)} to respond to steal...
+                                    ⌛ Waiting for {allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(pendingStealTarget))?.name || pendingStealTarget.slice(0, 6)} to respond to steal...
                                   </p>
                                   <div className="loader" style={{ margin: '1rem auto' }} />
                                 </div>
@@ -2765,7 +2898,7 @@ export default function PlayGame() {
                               <h3 style={{ color: '#ffbe0b', marginBottom: '0.5rem' }}>💰 AUCTION FOR 2X MULTIPLIER</h3>
                               <p style={{ color: 'rgba(255,255,255,0.8)', marginBottom: '1rem' }}>
                                 Highest Bid: <strong style={{ color: '#00fff9' }}>{auctionCurrentBid} XP</strong>
-                                {auctionHighestBidder ? ` (by ${auctionHighestBidder.slice(0, 6)})` : ''}
+                                {auctionHighestBidder ? ` (by ${allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(auctionHighestBidder))?.name || auctionHighestBidder.slice(0, 6)})` : ''}
                               </p>
 
                               {isMyAuctionTurn ? (
@@ -2805,7 +2938,7 @@ export default function PlayGame() {
                                     Current Highest Bid: <strong style={{ color: '#00fff9' }}>{auctionCurrentBid} XP</strong>
                                   </p>
                                   <p style={{ color: '#ffbe0b', fontSize: '1rem', marginBottom: '0.5rem' }}>
-                                    ⌛ Waiting for {(auctionCurrentAddr || '').slice(0, 6)} to bid...
+                                    ⌛ Waiting for {(allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(auctionCurrentAddr))?.name || (auctionCurrentAddr || '').slice(0, 6))} to bid...
                                   </p>
                                   <div className="loader" style={{ margin: '1rem auto' }} />
                                 </div>
@@ -2821,43 +2954,84 @@ export default function PlayGame() {
                               <h3 style={{ color: '#00fff9', marginBottom: '0.8rem' }}>⚖️ AI COMMUNITY GOVERNANCE</h3>
 
                               {isDeliberating ? (
-                                <div>
+                                <div style={{ padding: '2rem 1rem' }}>
                                   <div className="loader" style={{ margin: '1rem auto' }} />
-                                  <p style={{ color: '#ffbe0b', fontSize: '1.1rem', fontWeight: 'bold' }}>
-                                    🤖 AI Deliberation in progress...
+                                  <p style={{ color: '#ffbe0b', fontSize: '1.1rem', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>
+                                    🤖 AI COUNCIL DELIBERATING...
                                   </p>
-                                  <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-                                    Analyzing game balance and player stats
+                                  <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', marginTop: '1rem' }}>
+                                    Cross-referencing player XP and game balance...
                                   </p>
                                 </div>
                               ) : governanceReasoning ? (
-                                <div>
-                                  <p style={{ color: '#4CAF50', fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
-                                    ✅ Decision Reached!
+                                <div style={{ textAlign: 'left', background: 'rgba(0,0,0,0.3)', padding: '1.5rem', borderRadius: '12px', border: '1px solid #4CAF50' }}>
+                                  <p style={{ color: '#4CAF50', fontSize: '1rem', fontWeight: 'bold', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    ✅ COUNCIL DECISION
                                   </p>
-                                  <p style={{ color: 'white', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                  <p style={{ color: 'white', fontSize: '0.95rem', lineHeight: '1.5', fontStyle: 'italic', marginBottom: '1rem' }}>
                                     "{governanceReasoning}"
                                   </p>
+                                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.8rem' }}>
+                                    <p style={{ color: '#00fff9', fontWeight: 'bold' }}>
+                                      Directive: {governanceProposal.includes(':') ? governanceProposal.split(':')[1] : governanceProposal}
+                                    </p>
+                                  </div>
                                 </div>
                               ) : (
                                 <div>
-                                  <p style={{ color: 'rgba(255,255,255,0.8)', marginBottom: '1.5rem' }}>
-                                    The GenLayer AI will now determine the most beneficial proposal for the active player.
+                                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                                    The AI Council will analyze the state of all players and enforce one of these 6 possible directives:
                                   </p>
-                                  {isActivePlayer ? (
+
+                                  <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr',
+                                    gap: '0.6rem',
+                                    marginBottom: '2rem',
+                                    textAlign: 'left'
+                                  }}>
+                                    {[
+                                      { id: 'group_xp', label: '+5 XP for ALL' },
+                                      { id: 'shield_all', label: '+1 Shield for ALL' },
+                                      { id: 'burn_shields', label: 'Destroy ALL Shields' },
+                                      { id: 'strip_multipliers', label: 'Remove ALL Multipliers' },
+                                      { id: 'grant_multipliers', label: '2X for EVERYONE' },
+                                      { id: 'tax_players', label: '-5 XP for ALL' }
+                                    ].map(opt => (
+                                      <div key={opt.id} style={{
+                                        background: 'rgba(255,255,255,0.05)',
+                                        padding: '0.6rem',
+                                        borderRadius: '6px',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        color: 'rgba(255,255,255,0.6)'
+                                      }}>
+                                        • {opt.label}
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {isMyTurn ? (
                                     <button
                                       className="action-button"
-                                      style={{ width: '100%', padding: '1rem', background: 'linear-gradient(45deg, #00fff9, #00b8ff)', color: 'black', fontWeight: 'bold' }}
+                                      style={{
+                                        width: '100%',
+                                        padding: '1.2rem',
+                                        background: 'linear-gradient(45deg, #00fff9, #00b8ff)',
+                                        color: 'black',
+                                        fontWeight: 'bold',
+                                        fontSize: '1rem',
+                                        boxShadow: '0 0 20px rgba(0, 255, 249, 0.3)'
+                                      }}
                                       onClick={handleAIDeliberation}
+                                      disabled={isDeliberating}
                                     >
-                                      ⚖️ BEGIN AI DELIBERATION
+                                      ⚖️ CONVENE AI COUNCIL
                                     </button>
                                   ) : (
-                                    <div>
-                                      <p style={{ color: '#ffbe0b', fontSize: '1rem' }}>
-                                        ⌛ Awaiting active player to begin AI deliberation...
+                                    <div style={{ padding: '1rem', background: 'rgba(255,190,11,0.1)', borderRadius: '8px', border: '1px dashed #ffbe0b' }}>
+                                      <p style={{ color: '#ffbe0b', margin: 0 }}>
+                                        ⌛ Waiting for {allGamePlayers.find(p => p.address === currentTurnAddress)?.name || 'Active Player'} to convene the council...
                                       </p>
-                                      <div className="loader" style={{ margin: '1rem auto' }} />
                                     </div>
                                   )}
                                 </div>
@@ -2937,7 +3111,7 @@ export default function PlayGame() {
                                             otherPlayers.filter(p => !p.isEliminated).map((player, idx) => (
                                               <div key={idx} className="player-card" onClick={() => handleSteal(player)}
                                                 style={{ cursor: 'pointer', border: '1px solid rgba(255,0,110,0.5)', marginBottom: '0.5rem', borderRadius: '8px', padding: '0.75rem' }}>
-                                                <div className="player-name">🎯 {`${player.address.slice(0, 6)}...${player.address.slice(-4)}`}</div>
+                                                <div className="player-name">🎯 {player.name}</div>
                                                 <div className="player-stats">XP: {player.xp} | Shields: {player.shields} 🛡️</div>
                                               </div>
                                             ))
@@ -2971,12 +3145,12 @@ export default function PlayGame() {
                           {isActivePlayer ? (
                             <button
                               className="action-button"
-                              style={{ width: '100%', padding: '1rem', fontSize: '1rem', opacity: (isStealingResponse || isAuctioning || isGoverning) ? 0.5 : 1 }}
+                              style={{ width: '100%', padding: '1rem', fontSize: '1rem', opacity: (turnPhase === 'stealing_response' || turnPhase === 'auctioning' || turnPhase === 'governing') ? 0.5 : 1 }}
                               onClick={handleFinishTurn}
                               disabled={
-                                isStealingResponse ||
-                                isAuctioning ||
-                                isGoverning ||
+                                turnPhase === 'stealing_response' ||
+                                turnPhase === 'auctioning' ||
+                                turnPhase === 'governing' ||
                                 actionPerformed ||
                                 isFinishingTurnOnChain ||
                                 (landedBlock ? (
