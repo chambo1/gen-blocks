@@ -214,6 +214,7 @@ class GenBlocks(gl.Contract):
         self.auction_highest_bidder[room_code] = ""
         
         self.governance_active[room_code] = "false"
+        self.turn_phase[room_code] = "rolling"
         
         # Generate randomized board layout (24 blocks total: 1 Start + 22 Random + 1 End)
         # 0:Start, 1:Build, 2:Bonus, 3:Mystery, 4:Lucky, 5:Steal, 6:Auction, 7:Governance, 8:Danger, 9:Hazard, 10:End
@@ -441,7 +442,7 @@ class GenBlocks(gl.Contract):
         try:
             self._check_room(room_code)
             
-            phase = self.turn_phase.get(room_code)
+            phase = self.turn_phase.get(room_code) or "rolling"
             if phase != "rolling": raise Exception(f"Phase must be 'rolling' (Current: {phase})")
             player_addr = self._get_sender()
             
@@ -496,8 +497,14 @@ class GenBlocks(gl.Contract):
             else:
                 self.turn_active_mult[room_code] = "1"
             
-            # Set to acting phase - player must now perform a block action
-            self.turn_phase[room_code] = "acting"
+            # Determine if this block is passive or interactive
+            blocks_arr = board_layout_str.split(',')
+            landed_block_id = int(blocks_arr[new_pos])
+            
+            if landed_block_id == 0: # START
+                self.turn_phase[room_code] = "finishing"
+            else:
+                self.turn_phase[room_code] = "acting"
             
             self._check_winners(room_code)
             return "Dice rolled"
@@ -1669,6 +1676,7 @@ class GenBlocks(gl.Contract):
         
         # Immediate explicit elimination
         self.player_eliminated[key] = "true" 
+        self.turn_phase[room_code] = "finishing"
         self._add_to_log(room_code, "💀 REACHED THE END - PERMANENTLY ELIMINATED!", player_addr)
         
         # Check if this elimination ends the entire game
