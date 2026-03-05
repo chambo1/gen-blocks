@@ -72,7 +72,7 @@ export default function PlayGame() {
   // Reconnection state
   const [isCheckingActiveRoom, setIsCheckingActiveRoom] = useState(false)
   const [turnIndex, setTurnIndex] = useState(0)
-  const [turnPhase, setTurnPhase] = useState<'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing'>('rolling')
+  const [turnPhase, setTurnPhase] = useState<'rolling' | 'acting' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing'>('rolling')
   const [pendingStealTarget, setPendingStealTarget] = useState<string>('')
   const [pendingStealAttacker, setPendingStealAttacker] = useState<string>('')
   const [stealTimeleft, setStealTimeleft] = useState<number>(40)
@@ -343,7 +343,7 @@ export default function PlayGame() {
       setTurnTimer(30)
       setTurnTimerPhase('roll')
       turnTimerSkipping.current = false
-    } else if (turnPhase === 'finishing' && gameState === 'playing' && !actionCompleted && !isActivePlayerEliminated) {
+    } else if ((turnPhase === 'acting' || turnPhase === 'finishing') && gameState === 'playing' && !actionCompleted && !isActivePlayerEliminated) {
       // After rolling, if on an interactive block that needs action (or not)
       setTurnTimer(30)
       setTurnTimerPhase('action')
@@ -596,7 +596,7 @@ export default function PlayGame() {
           const mainParts = playerData.split(';')
           if (mainParts.length >= 4) {
             const turnIdx = parseInt(mainParts[0]) || 0
-            const phase = mainParts[2] as 'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
+            const phase = mainParts[2] as 'rolling' | 'acting' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
 
             // IF turn or phase has changed, reset the timer IMMEDIATELY in this state batch
             // This prevents other effects from firing on a stale (0 or negative) timer
@@ -1080,7 +1080,7 @@ export default function PlayGame() {
       }
 
       const turnIdx = parseInt(mainParts[0]) || 0
-      const phase = mainParts[2] as 'rolling' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
+      const phase = mainParts[2] as 'rolling' | 'acting' | 'finishing' | 'stealing_response' | 'auctioning' | 'governing' || 'rolling'
 
       // Reset timer immediately if turn or phase changed
       if (turnIdx !== turnIndex || phase !== turnPhase) {
@@ -2583,12 +2583,13 @@ export default function PlayGame() {
                             showStealPrompt ||
                             showAuctionPrompt ||
                             isLocalPlayerEliminated ||
+                            turnPhase === 'acting' ||
                             turnPhase === 'finishing' ||
                             !isMyTurn
                           }
                         >
                           {isLocalPlayerEliminated ? '💀 ELIMINATED' :
-                            (turnPhase === 'finishing') ? '⏳ WAITING FOR TURN SUMMARY' :
+                            (turnPhase === 'acting' || turnPhase === 'finishing') ? '⏳ WAITING FOR TURN SUMMARY' :
                               (!isMyTurn) ? `⏳ WAIT (TURN: ${allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(currentTurnAddress))?.name || (currentTurnAddress || '').slice(0, 6)})` :
                                 (isRolling ? '🎲 Rolling...' : '🎲 Roll Dice')}
                         </button>
@@ -2631,7 +2632,7 @@ export default function PlayGame() {
                   )}
 
                   {/* ====== UNIFIED TURN SUMMARY FULLSCREEN POPUP ====== */}
-                  {(turnPhase === 'finishing' || turnPhase === 'stealing_response' || turnPhase === 'auctioning' || turnPhase === 'governing') && (() => {
+                  {(turnPhase === 'acting' || turnPhase === 'finishing' || turnPhase === 'stealing_response' || turnPhase === 'auctioning' || turnPhase === 'governing') && (() => {
                     const isStealingResponse = turnPhase === 'stealing_response'
                     const isStealTarget = normalizeAddr(pendingStealTarget) === normalizeAddr(address)
                     const isAuctioning = turnPhase === 'auctioning'
