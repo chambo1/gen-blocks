@@ -746,7 +746,7 @@ class GenBlocks(gl.Contract):
     @gl.public.write
     def handle_governance_block(self, room_code: str) -> None:
         self._check_room(room_code)
-        """Land on governance block - Sets phase to governing for AI Council"""
+        """Land on governance block - AI Council immediately deliberates"""
         player_addr = self._get_sender()
         key = f"{room_code}:{player_addr.lower()}"
         
@@ -766,32 +766,11 @@ class GenBlocks(gl.Contract):
         phase = self.turn_phase.get(room_code)
         if phase != "acting": raise Exception(f"Not in acting phase (Current: {phase})")
         
-        # Transition to governing phase to show proposals to the user
         self.turn_phase[room_code] = "governing"
         self.governance_active[room_code] = "true"
-        self._add_to_log(room_code, "⚖️ Landed on Governance - Convene the AI Council!", player_addr)
-
-    @gl.public.write
-    def deliberate_governance(self, room_code: str) -> None:
-        self._check_room(room_code)
-        """Initiates AI Council Deliberation and applies effects"""
-        player_addr = self._get_sender()
-        key = f"{room_code}:{player_addr.lower()}"
-        
-        active = self.governance_active.get(room_code) == "true"
-        if not active: raise Exception("Governance not active")
-        
-        phase = self.turn_phase.get(room_code)
-        if phase != "governing": raise Exception("Not in governance phase")
-
-        players_str = self.players_list.get(room_code)
-        players = players_str.split(',')
-        turn_index = int(self.current_turn.get(room_code) or "0")
-        current_player = players[turn_index % len(players)]
-        if current_player.lower() != player_addr.lower(): raise Exception("Not your turn")
+        self._add_to_log(room_code, "⚖️ AI Council is deliberating...", player_addr)
 
         game_sum = self._get_game_state_summary(room_code)
-        self._add_to_log(room_code, "⚖️ AI Council is deliberating...", player_addr)
 
         prompt = f"""
         You are the GenLayer AI Governance Council. The game is Gen Blocks.

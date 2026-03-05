@@ -335,23 +335,21 @@ export default function PlayGame() {
   // Turn timer: 30s to roll, 30s to act
   // Start roll timer for EVERYONE when rolling phase or action phase begins
   useEffect(() => {
-    // Determine whose turn it is
-    const activePlayerAddr = allGamePlayers.find(p => p.isCurrentTurn)?.address || currentTurnAddress
-    const isActivePlayerEliminated = allGamePlayers.find(p => p.address.toLowerCase() === activePlayerAddr.toLowerCase())?.isEliminated || false
+    const activePlayerAddr = allGamePlayersRef.current.find(p => p.isCurrentTurn)?.address || currentTurnAddress
+    const isActivePlayerEliminated = allGamePlayersRef.current.find(p => p.address.toLowerCase() === activePlayerAddr?.toLowerCase())?.isEliminated || false
 
     if (turnPhase === 'rolling' && gameState === 'playing' && !isRolling && !isActivePlayerEliminated) {
       setTurnTimer(30)
       setTurnTimerPhase('roll')
       turnTimerSkipping.current = false
     } else if ((turnPhase === 'acting' || turnPhase === 'finishing') && gameState === 'playing' && !actionCompleted && !isActivePlayerEliminated) {
-      // After rolling, if on an interactive block that needs action (or not)
       setTurnTimer(30)
       setTurnTimerPhase('action')
       turnTimerSkipping.current = false
     } else if (turnPhase === 'stealing_response' || turnPhase === 'auctioning' || turnPhase === 'governing') {
       setTurnTimerPhase('none')
     }
-  }, [turnPhase, gameState, isRolling, actionCompleted, currentTurnAddress, turnIndex, allGamePlayers])
+  }, [turnPhase, gameState, isRolling, actionCompleted, currentTurnAddress, turnIndex])
 
   // Turn timer countdown
   useEffect(() => {
@@ -1411,8 +1409,8 @@ export default function PlayGame() {
       addLog(`⚖️ Initiating AI Governance event...`)
       const { wait } = await writeGenLayerContract('handle_governance_block', [roomCode], address)
       await wait()
-      addLog(`✅ AI Governance phase active!`)
-      // We don't set actionCompleted yet because they still need to deliberate
+      addLog(`✅ AI deliberation complete! Result processed.`)
+      setActionCompleted(true)
       setActionPerformed(false)
     } catch (err: any) {
       console.error('Governance start failed:', err)
@@ -1422,22 +1420,7 @@ export default function PlayGame() {
     }
   }
 
-  const handleAIDeliberation = async () => {
-    if (!address || !roomCode) return
-    setIsDeliberating(true)
-    try {
-      addLog(`⚖️ Initiating AI deliberation...`)
-      const { wait } = await writeGenLayerContract('deliberate_governance', [roomCode], address)
-      await wait()
-      addLog(`✅ AI deliberation complete! Result processed.`)
-      setActionCompleted(true) // Now they can finish turn
-      setIsDeliberating(false)
-    } catch (err: any) {
-      console.error('AI Deliberation failed:', err)
-      addLog(`❌ AI deliberation error: ${err.message}`)
-      setIsDeliberating(false)
-    }
-  }
+
 
   // Removed handleVoteProposal as governance is now AI-driven
 
@@ -2979,17 +2962,7 @@ export default function PlayGame() {
                             }}>
                               <h3 style={{ color: '#00fff9', marginBottom: '0.8rem' }}>⚖️ AI COMMUNITY GOVERNANCE</h3>
 
-                              {isDeliberating ? (
-                                <div style={{ padding: '2rem 1rem' }}>
-                                  <div className="loader" style={{ margin: '1rem auto' }} />
-                                  <p style={{ color: '#ffbe0b', fontSize: '1.1rem', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>
-                                    🤖 AI COUNCIL DELIBERATING...
-                                  </p>
-                                  <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', marginTop: '1rem' }}>
-                                    Cross-referencing player XP and game balance...
-                                  </p>
-                                </div>
-                              ) : governanceReasoning ? (
+                              {governanceReasoning ? (
                                 <div style={{ textAlign: 'left', background: 'rgba(0,0,0,0.3)', padding: '1.5rem', borderRadius: '12px', border: '1px solid #4CAF50' }}>
                                   <p style={{ color: '#4CAF50', fontSize: '1rem', fontWeight: 'bold', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                     ✅ COUNCIL DECISION
@@ -3004,62 +2977,14 @@ export default function PlayGame() {
                                   </div>
                                 </div>
                               ) : (
-                                <div>
-                                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                                    The AI Council will analyze the state of all players and enforce one of these 6 possible directives:
+                                <div style={{ padding: '2rem 1rem' }}>
+                                  <div className="loader" style={{ margin: '1rem auto' }} />
+                                  <p style={{ color: '#ffbe0b', fontSize: '1.1rem', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>
+                                    🤖 AI COUNCIL DELIBERATING...
                                   </p>
-
-                                  <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '1fr 1fr',
-                                    gap: '0.6rem',
-                                    marginBottom: '2rem',
-                                    textAlign: 'left'
-                                  }}>
-                                    {[
-                                      { id: 'group_xp', label: '+5 XP for ALL' },
-                                      { id: 'shield_all', label: '+1 Shield for ALL' },
-                                      { id: 'burn_shields', label: 'Destroy ALL Shields' },
-                                      { id: 'strip_multipliers', label: 'Remove ALL Multipliers' },
-                                      { id: 'grant_multipliers', label: '2X for EVERYONE' },
-                                      { id: 'tax_players', label: '-5 XP for ALL' }
-                                    ].map(opt => (
-                                      <div key={opt.id} style={{
-                                        background: 'rgba(255,255,255,0.05)',
-                                        padding: '0.6rem',
-                                        borderRadius: '6px',
-                                        border: '1px solid rgba(255,255,255,0.1)',
-                                        color: 'rgba(255,255,255,0.6)'
-                                      }}>
-                                        • {opt.label}
-                                      </div>
-                                    ))}
-                                  </div>
-
-                                  {isMyTurn ? (
-                                    <button
-                                      className="action-button"
-                                      style={{
-                                        width: '100%',
-                                        padding: '1.2rem',
-                                        background: 'linear-gradient(45deg, #00fff9, #00b8ff)',
-                                        color: 'black',
-                                        fontWeight: 'bold',
-                                        fontSize: '1rem',
-                                        boxShadow: '0 0 20px rgba(0, 255, 249, 0.3)'
-                                      }}
-                                      onClick={handleAIDeliberation}
-                                      disabled={isDeliberating}
-                                    >
-                                      ⚖️ CONVENE AI COUNCIL
-                                    </button>
-                                  ) : (
-                                    <div style={{ padding: '1rem', background: 'rgba(255,190,11,0.1)', borderRadius: '8px', border: '1px dashed #ffbe0b' }}>
-                                      <p style={{ color: '#ffbe0b', margin: 0 }}>
-                                        ⌛ Waiting for {allGamePlayers.find(p => p.address === currentTurnAddress)?.name || 'Active Player'} to convene the council...
-                                      </p>
-                                    </div>
-                                  )}
+                                  <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', marginTop: '1rem' }}>
+                                    Cross-referencing player XP and game balance...
+                                  </p>
                                 </div>
                               )}
                             </div>
