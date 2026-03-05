@@ -1,4 +1,4 @@
-# 🎲 Gen Blocks: The Board Game of Subjectivity
+# 🎲 Gen Blocks: The Board Game
 
 **Gen Blocks** is a high-stakes, multiplayer blockchain board game built exclusively for the **GenLayer Testnet Builders Program**. It transforms the traditional "Roll and Move" genre into a living demonstration of **Intelligent Contracts** and **Optimistic Democracy**.
 
@@ -63,7 +63,7 @@ These agents debate through `gl.ai_call`, reaching a **subjective consensus** on
 ---
 
 ## 🏆 Submission Note: Testnet Builders Program
-Gen Blocks was designed specifically to meet the "Special Mission" requirements:
+Gen Blocks was built specifically for the "Mini-games for Genlayer's community" requirements:
 - ✅ **Showcase Intelligent Contracts**: Centralized logic replaced by decentralized AI deliberation.
 - ✅ **Consensus-Driven**: Uses Optimistic Democracy between AI voters to steer game direction.
 - ✅ **Community Focused**: Perfect for Discord hangouts with 5-15min replayable sessions.

@@ -294,23 +294,26 @@ export default function PlayGame() {
       const currentAuctionAddr = allGamePlayers[auctionTurnIndex % allGamePlayers.length]?.address;
       const isMyAuctionTurn = normalizeAddr(currentAuctionAddr) === normalizeAddr(address);
 
+      // Determine the next player in the auction rotation as the backup skipper
+      const nextIdx = (auctionTurnIndex + 1) % allGamePlayers.length;
+      const nextAuctionAddr = allGamePlayers[nextIdx]?.address;
+      const isNextAuctionTurn = normalizeAddr(nextAuctionAddr) === normalizeAddr(address);
+
       if (auctionTimeleft > 0) {
-        // Everyone counts down to keep UI in sync, but only the active player or others after 0 will trigger tx
         const timerId = setTimeout(() => {
           setAuctionTimeleft(prev => prev - 1)
         }, 1000)
         return () => clearTimeout(timerId)
       } else {
-        // Timer is at or below 0. 
-        // If I am the active bidder, I trigger the timeout.
-        // If I'm NOT the bidder but the timer has been at 0 for more than 5 seconds, I can trigger it as a fallback.
         if (isMyAuctionTurn) {
           handleAuctionResponse('timeout')
-        } else if (auctionTimeleft < -5) {
-          // Fallback: someone else can trigger the timeout to unstick the game
+        } else if (isNextAuctionTurn && auctionTimeleft < -5) {
+          // NEXT PLAYER triggers after 5s grace
+          handleAuctionResponse('timeout')
+        } else if (auctionTimeleft < -12) {
+          // ANYONE triggers after 12s as absolute fallback
           handleAuctionResponse('timeout')
         } else {
-          // Non-active players keep ticking into negative to trigger fallback
           const timerId = setTimeout(() => {
             setAuctionTimeleft(prev => prev - 1)
           }, 1000)
@@ -336,6 +339,7 @@ export default function PlayGame() {
   useEffect(() => {
     if (turnPhase === 'stealing_response' && !hasRespondedToSteal) {
       const isTarget = normalizeAddr(pendingStealTarget) === normalizeAddr(address);
+      const isAttacker = normalizeAddr(pendingStealAttacker) === normalizeAddr(address);
 
       if (stealTimeleft > 0) {
         const timerId = setTimeout(() => {
@@ -343,11 +347,13 @@ export default function PlayGame() {
         }, 1000)
         return () => clearTimeout(timerId)
       } else {
-        // Auto-forfeit/allow when timer hits 0
         if (isTarget) {
           handleStealResponse('timeout')
-        } else if (stealTimeleft < -5) {
-          // Fallback trigger for other players
+        } else if (isAttacker && stealTimeleft < -5) {
+          // ATTACKER triggers skip after 5s
+          handleStealResponse('timeout')
+        } else if (stealTimeleft < -12) {
+          // ANYONE triggers skip after 12s fallback
           handleStealResponse('timeout')
         } else {
           const timerId = setTimeout(() => {
@@ -395,7 +401,6 @@ export default function PlayGame() {
     if (turnTimerPhase === 'none' || turnTimerSkipping.current) return
 
     if (turnTimer === 0 && isMyTurn && address && roomCode) {
-      // It's MY turn and timer hit 0
       turnTimerSkipping.current = true
       if (turnTimerPhase === 'roll') {
         addLog('⏰ Turn timer expired! Auto-skipping...')
@@ -405,12 +410,24 @@ export default function PlayGame() {
         handleFinishTurn()
       }
       setTurnTimerPhase('none')
-    } else if (turnTimer < -3 && !isMyTurn && address && roomCode) {
-      // It's NOT my turn and the timer is deep into negative (grace period passed)
-      turnTimerSkipping.current = true
-      addLog('⏰ Active player timed out! Forcing turn skip...')
-      writeGenLayerContract('force_end_turn', [roomCode], address).then(({ wait }) => wait()).catch(() => { })
-      setTurnTimerPhase('none')
+    } else if (turnTimer < -5 && !isMyTurn && address && roomCode) {
+      // Find NEXT player in rotation
+      const nextIdx = (turnIndex + 1) % allGamePlayers.length
+      const nextPlayerAddr = allGamePlayers[nextIdx]?.address
+      const isNextPlayer = normalizeAddr(nextPlayerAddr) === normalizeAddr(address)
+
+      if (isNextPlayer) {
+        turnTimerSkipping.current = true
+        addLog('⏰ Active player timed out! Next player forcing skip...')
+        writeGenLayerContract('force_end_turn', [roomCode], address).then(({ wait }) => wait()).catch(() => { })
+        setTurnTimerPhase('none')
+      } else if (turnTimer < -12) {
+        // ANYONE triggers after 12s absolute fallback
+        turnTimerSkipping.current = true
+        addLog('⏰ Recovery: Forcing turn skip...')
+        writeGenLayerContract('force_end_turn', [roomCode], address).then(({ wait }) => wait()).catch(() => { })
+        setTurnTimerPhase('none')
+      }
     }
   }, [turnTimer, turnTimerPhase, isMyTurn, turnIndex, address, roomCode])
 
@@ -1009,8 +1026,29 @@ export default function PlayGame() {
     }
   }
 
+  // Leave room with blockchain
+  const leaveRoom = async () => {
+    if (!roomCode || !address) return
 
+    addLog(`Leaving room ${roomCode}...`)
 
+    try {
+      const { hash: txHash, wait } = await writeGenLayerContract('leave_room', [roomCode], address)
+      console.log('Leave room transaction sent:', txHash)
+      addLog(`📤 Transaction sent: ${txHash.slice(0, 10)}...`)
+
+      await wait()
+
+      localStorage.removeItem('genblocks_roomCode')
+      localStorage.removeItem('genblocks_gameState')
+      setRoomCode('')
+      setGameState('lobby')
+      addLog(`✅ Left room ${roomCode}!`)
+    } catch (err: any) {
+      console.error('Leave room failed:', err)
+      addLog(`❌ Error: ${err.message || 'Failed to leave room'}`)
+    }
+  }
 
   const startGame = async () => {
     if (!roomCode || !address) return
@@ -2418,14 +2456,24 @@ export default function PlayGame() {
                   <p className="player-count">
                     Players: {displayPlayerCount}/{MAX_PLAYERS}
                   </p>
-                  <button
-                    type="button"
-                    className="action-button"
-                    style={{ padding: '0.5rem 1.2rem', fontSize: '0.9rem', marginBottom: '1rem' }}
-                    onClick={refreshWaitingRoom}
-                  >
-                    🔄 Refresh
-                  </button>
+                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginBottom: '1rem' }}>
+                    <button
+                      type="button"
+                      className="action-button"
+                      style={{ padding: '0.5rem 1.2rem', fontSize: '0.9rem' }}
+                      onClick={refreshWaitingRoom}
+                    >
+                      🔄 Refresh
+                    </button>
+                    <button
+                      type="button"
+                      className="action-button"
+                      style={{ padding: '0.5rem 1.2rem', fontSize: '0.9rem', border: '1px solid #ff006e', color: '#ff006e', background: 'transparent' }}
+                      onClick={leaveRoom}
+                    >
+                      🚪 Quit Room
+                    </button>
+                  </div>
 
                   {isRoomCreator && (
                     <p style={{ color: '#00fff9', fontSize: '0.9rem', marginBottom: '1rem' }}>
