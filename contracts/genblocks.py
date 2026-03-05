@@ -1423,15 +1423,16 @@ class GenBlocks(gl.Contract):
     def respond_to_steal(self, room_code: str, action: str) -> None:
         self._check_room(room_code)
         player_addr = self._get_sender()
-        target_lower = player_addr.lower()
         
         phase = self.turn_phase.get(room_code)
         if phase != "stealing_response":
             raise Exception("No active steal response phase")
-            
+
         pending_target = self.pending_steal_target.get(room_code)
-        if pending_target != target_lower:
+        if action != "timeout" and pending_target.lower() != player_addr.lower():
             raise Exception("You are not the steal target")
+        
+        target_lower = pending_target.lower()
             
         pending_attacker = self.pending_steal_attacker.get(room_code)
         if not pending_attacker:
@@ -1595,19 +1596,21 @@ class GenBlocks(gl.Contract):
         auc_turn_index = int(self.auction_turn_index.get(room_code) or "0")
         current_bidder = players[auc_turn_index].lower()
         
-        if player_addr != current_bidder:
+        if player_addr != current_bidder and action != "timeout":
             raise Exception("Not your turn to bid")
             
         if action == "pass" or action == "timeout":
             passed_str = self.auction_passed.get(room_code) or ""
             passed_list = passed_str.split(',') if passed_str else []
-            if player_addr not in passed_list:
-                passed_list.append(player_addr)
+            # whoever is the current bidder is the one getting skipped
+            skip_addr = current_bidder
+            if skip_addr not in passed_list:
+                passed_list.append(skip_addr)
                 self.auction_passed[room_code] = ",".join(passed_list)
                 if action == "timeout":
-                    self._add_to_log(room_code, "timed out.", player_addr)
+                    self._add_to_log(room_code, "timed out.", skip_addr)
                 else:    
-                    self._add_to_log(room_code, "passed.", player_addr)
+                    self._add_to_log(room_code, "passed.", skip_addr)
             self._next_auction_bidder(room_code)
             return
             

@@ -292,14 +292,29 @@ export default function PlayGame() {
   useEffect(() => {
     if (turnPhase === 'auctioning' && !hasRespondedToAuction && allGamePlayers.length > 0) {
       const currentAuctionAddr = allGamePlayers[auctionTurnIndex % allGamePlayers.length]?.address;
-      if (normalizeAddr(currentAuctionAddr) === normalizeAddr(address)) {
-        if (auctionTimeleft > 0) {
+      const isMyAuctionTurn = normalizeAddr(currentAuctionAddr) === normalizeAddr(address);
+
+      if (auctionTimeleft > 0) {
+        // Everyone counts down to keep UI in sync, but only the active player or others after 0 will trigger tx
+        const timerId = setTimeout(() => {
+          setAuctionTimeleft(prev => prev - 1)
+        }, 1000)
+        return () => clearTimeout(timerId)
+      } else {
+        // Timer is at or below 0. 
+        // If I am the active bidder, I trigger the timeout.
+        // If I'm NOT the bidder but the timer has been at 0 for more than 5 seconds, I can trigger it as a fallback.
+        if (isMyAuctionTurn) {
+          handleAuctionResponse('timeout')
+        } else if (auctionTimeleft < -5) {
+          // Fallback: someone else can trigger the timeout to unstick the game
+          handleAuctionResponse('timeout')
+        } else {
+          // Non-active players keep ticking into negative to trigger fallback
           const timerId = setTimeout(() => {
             setAuctionTimeleft(prev => prev - 1)
           }, 1000)
           return () => clearTimeout(timerId)
-        } else {
-          handleAuctionResponse('timeout')
         }
       }
     }
@@ -319,7 +334,9 @@ export default function PlayGame() {
 
   // Timer for steal response
   useEffect(() => {
-    if (turnPhase === 'stealing_response' && normalizeAddr(pendingStealTarget) === normalizeAddr(address) && !hasRespondedToSteal) {
+    if (turnPhase === 'stealing_response' && !hasRespondedToSteal) {
+      const isTarget = normalizeAddr(pendingStealTarget) === normalizeAddr(address);
+
       if (stealTimeleft > 0) {
         const timerId = setTimeout(() => {
           setStealTimeleft(prev => prev - 1)
@@ -327,7 +344,17 @@ export default function PlayGame() {
         return () => clearTimeout(timerId)
       } else {
         // Auto-forfeit/allow when timer hits 0
-        handleStealResponse('timeout')
+        if (isTarget) {
+          handleStealResponse('timeout')
+        } else if (stealTimeleft < -5) {
+          // Fallback trigger for other players
+          handleStealResponse('timeout')
+        } else {
+          const timerId = setTimeout(() => {
+            setStealTimeleft(prev => prev - 1)
+          }, 1000)
+          return () => clearTimeout(timerId)
+        }
       }
     }
   }, [turnPhase, pendingStealTarget, address, stealTimeleft, hasRespondedToSteal])
