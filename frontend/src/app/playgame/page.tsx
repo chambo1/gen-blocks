@@ -8,6 +8,7 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI, getPlayerKey } from '@/lib/genlayer'
 import { writeGenLayerContract, readGenLayerContract } from '@/lib/genlayer-client'
 import { PlayersDisplay } from '@/components/PlayersDisplay'
 import { GovernanceVoting } from '@/components/GovernanceVoting'
+import { sounds } from '@/lib/sounds'
 
 interface Player {
   address: string
@@ -105,6 +106,49 @@ export default function PlayGame() {
   const [isFinishingTurnOnChain, setIsFinishingTurnOnChain] = useState(false)
   const [currentTurnAddress, setCurrentTurnAddress] = useState<string>('')
   const [isLocalPlayerEliminated, setIsLocalPlayerEliminated] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('genblocks_sound') !== 'false'
+    return true
+  })
+
+  // Sync sound engine
+  useEffect(() => {
+    sounds.setEnabled(soundEnabled)
+    localStorage.setItem('genblocks_sound', String(soundEnabled))
+  }, [soundEnabled])
+
+  // Play Land sound when current block changes
+  useEffect(() => {
+    if (currentBlock) {
+      if (['bonus', 'mystery', 'lucky'].includes(currentBlock.type)) {
+        sounds.playBonus()
+      } else if (['danger', 'hazard', 'end'].includes(currentBlock.type)) {
+        sounds.playHazard()
+      } else {
+        sounds.playLand()
+      }
+    }
+  }, [currentBlock])
+
+  // Play Eliminated sound
+  useEffect(() => {
+    if (isLocalPlayerEliminated) {
+      sounds.playEliminated()
+    }
+  }, [isLocalPlayerEliminated])
+
+  // Play Finish sound
+  useEffect(() => {
+    if (gameState === 'finished') {
+      const me = allGamePlayers.find(p => normalizeAddr(p.address) === normalizeAddr(address))
+      const winner = [...allGamePlayers].sort((a, b) => b.xp - a.xp)[0]
+      if (me && normalizeAddr(me.address) === normalizeAddr(winner?.address)) {
+        sounds.playWin()
+      } else {
+        sounds.playHazard() // Sad sound for loss/others
+      }
+    }
+  }, [gameState, allGamePlayers, address, normalizeAddr])
 
   // Turn timer state
   const [turnTimer, setTurnTimer] = useState(30)
@@ -1052,6 +1096,7 @@ export default function PlayGame() {
 
   const startGame = async () => {
     if (!roomCode || !address) return
+    sounds.playClick()
 
     if (!isRoomCreator) {
       addLog('❌ Only the room creator can start the game!')
@@ -1099,6 +1144,7 @@ export default function PlayGame() {
 
   const handleRollDice = async () => {
     if (!address || !roomCode || isRolling || board.length === 0 || !isMyTurn) return
+    sounds.playClick()
 
     setIsRolling(true)
     setActionPerformed(false) // reset so action buttons reappear for this turn
@@ -1112,6 +1158,7 @@ export default function PlayGame() {
     // Start dice animation — cycle random numbers while we wait
     const animInterval = setInterval(() => {
       setDiceValue(Math.floor(Math.random() * 6) + 1)
+      sounds.playDice()
     }, 100)
 
     try {
@@ -1281,6 +1328,7 @@ export default function PlayGame() {
 
   const handleFinishTurn = async () => {
     if (!address || !roomCode || isFinishingTurnOnChain) return
+    sounds.playClick()
 
     setIsFinishingTurnOnChain(true)
     setTurnTimerPhase('none') // stop action timer
@@ -1302,6 +1350,7 @@ export default function PlayGame() {
 
   const handleStealResponse = async (action: 'shield' | 'forfeit' | 'allow' | 'timeout') => {
     if (!address || !roomCode || hasRespondedToSteal) return
+    sounds.playClick()
     setHasRespondedToSteal(true)
     try {
       addLog(`🛡️ Processing steal response...`)
@@ -1318,6 +1367,7 @@ export default function PlayGame() {
   const handleQuitGame = async () => {
     if (!address || !roomCode) return
     if (!confirm('Are you sure you want to quit? You will be eliminated from the game.')) return
+    sounds.playClick()
 
     try {
       addLog('🚪 Leaving game...')
@@ -1343,6 +1393,7 @@ export default function PlayGame() {
 
   const handleBuildContract = async () => {
     if (!address || !roomCode) return
+    sounds.playClick()
 
     addLog('Building contract on blockchain...')
     setShowActionPrompt(false)
@@ -1367,6 +1418,7 @@ export default function PlayGame() {
 
   const handleChallenge = async () => {
     if (!address || !canBeChallenged) return
+    sounds.playClick()
 
     const challengeMessage = `⚔️ Challenge Contract\n\nI challenge the last built contract!\n\nChallenger: ${address}\nTimestamp: ${Date.now()}`
 
@@ -1407,6 +1459,7 @@ export default function PlayGame() {
 
   const handleStartAuction = async () => {
     if (!address || !roomCode) return
+    sounds.playClick()
     setActionPerformed(true)
     setShowActionPrompt(false)
     try {
@@ -1426,6 +1479,7 @@ export default function PlayGame() {
 
   const handleAuctionResponse = async (action: 'bid' | 'pass' | 'timeout', bidAmount?: number) => {
     if (!address || !roomCode || hasRespondedToAuction) return
+    sounds.playClick()
     setHasRespondedToAuction(true)
     try {
       addLog(`💰 Processing auction ${action}...`)
@@ -1443,6 +1497,7 @@ export default function PlayGame() {
 
   const handleSteal = async (targetPlayer: Player) => {
     if (!address || !roomCode) return
+    sounds.playClick()
 
     addLog(`Attempting to steal from ${targetPlayer.name} on blockchain...`)
     setShowStealPrompt(false)
@@ -1467,6 +1522,7 @@ export default function PlayGame() {
 
   const handleProposeGovernance = async () => {
     if (!address || !roomCode) return
+    sounds.playClick()
     setActionPerformed(true)
     setShowActionPrompt(false)
     setTurnTimerPhase('none') // stop action timer
@@ -1730,7 +1786,28 @@ export default function PlayGame() {
           -webkit-text-fill-color: transparent;
           text-transform: uppercase;
           letter-spacing: 0.15em;
-          margin-bottom: 1rem;
+          margin: 0;
+        }
+
+        .sound-toggle {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 12px;
+          padding: 0.5rem 1rem;
+          cursor: pointer;
+          font-size: 1.2rem;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 45px;
+          min-width: 50px;
+        }
+
+        .sound-toggle:hover {
+          background: rgba(255, 255, 255, 0.15);
+          border-color: #00fff9;
+          transform: scale(1.05);
         }
 
         .game-stats {
@@ -2312,7 +2389,19 @@ export default function PlayGame() {
         ) : (
           <>
             <div className="game-header">
-              <h1 className="game-title">Gen Blocks</h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <h1 className="game-title">Gen Blocks</h1>
+                <button
+                  className="sound-toggle"
+                  onClick={() => {
+                    setSoundEnabled(!soundEnabled);
+                    if (!soundEnabled) sounds.playClick();
+                  }}
+                  title={soundEnabled ? "Disable Sound" : "Enable Sound"}
+                >
+                  {soundEnabled ? '🔊' : '🔇'}
+                </button>
+              </div>
               <div className="game-stats">
                 <div className="stat-item">XP: {playerXP}</div>
                 <div className="stat-item">Position: {playerPosition}</div>
@@ -2339,7 +2428,7 @@ export default function PlayGame() {
                     </span>
                   </p>
                   <div className="lobby-buttons">
-                    <button className="action-button" onClick={createRoom}>
+                    <button className="action-button" onClick={() => { sounds.playClick(); createRoom(); }}>
                       🏠 Create Room
                     </button>
                   </div>
@@ -2355,7 +2444,7 @@ export default function PlayGame() {
                         onChange={(e) => setJoinRoomCode(e.target.value)}
                         maxLength={8}
                       />
-                      <button className="action-button secondary" onClick={joinRoomByCode}>
+                      <button className="action-button secondary" onClick={() => { sounds.playClick(); joinRoomByCode(); }}>
                         Join Room
                       </button>
                     </div>
@@ -2367,6 +2456,7 @@ export default function PlayGame() {
                         className="action-button"
                         style={{ fontSize: '0.9rem', padding: '0.5rem 1rem', border: '1px solid #ffbe0b', color: '#ffbe0b' }}
                         onClick={() => {
+                          sounds.playClick()
                           setIsCheckingActiveRoom(true)
                           const check = async () => {
                             try {
@@ -2444,6 +2534,7 @@ export default function PlayGame() {
                         className="action-button"
                         style={{ padding: '0.5rem 1.5rem', fontSize: '0.9rem' }}
                         onClick={() => {
+                          sounds.playClick()
                           navigator.clipboard.writeText(roomCode)
                           addLog('Room code copied to clipboard!')
                         }}
@@ -2461,7 +2552,7 @@ export default function PlayGame() {
                       type="button"
                       className="action-button"
                       style={{ padding: '0.5rem 1.2rem', fontSize: '0.9rem' }}
-                      onClick={refreshWaitingRoom}
+                      onClick={() => { sounds.playClick(); refreshWaitingRoom(); }}
                     >
                       🔄 Refresh
                     </button>
@@ -2469,7 +2560,7 @@ export default function PlayGame() {
                       type="button"
                       className="action-button"
                       style={{ padding: '0.5rem 1.2rem', fontSize: '0.9rem', border: '1px solid #ff006e', color: '#ff006e', background: 'transparent' }}
-                      onClick={leaveRoom}
+                      onClick={() => { sounds.playClick(); leaveRoom(); }}
                     >
                       🚪 Quit Room
                     </button>
@@ -3249,11 +3340,16 @@ export default function PlayGame() {
 
               {gameState === 'finished' && (() => {
                 const sortedPlayers = [
-                  { address: address || '0x...', name: 'You', xp: playerXP },
-                  ...otherPlayers
-                ].sort((a, b) => b.xp - a.xp);
+                  { address: address || '0x...', name: 'You', xp: playerXP, isEliminated: isLocalPlayerEliminated },
+                  ...otherPlayers.map(p => ({ address: p.address, name: p.name, xp: p.xp, isEliminated: p.isEliminated }))
+                ].sort((a, b) => {
+                  // Active players always rank higher than eliminated ones
+                  if (a.isEliminated && !b.isEliminated) return 1
+                  if (!a.isEliminated && b.isEliminated) return -1
+                  return b.xp - a.xp
+                });
 
-                const winnerName = sortedPlayers.length > 0 ? sortedPlayers[0].name : 'Someone';
+                const winnerName = sortedPlayers.length > 0 && !sortedPlayers[0].isEliminated ? sortedPlayers[0].name : (sortedPlayers.length > 0 ? sortedPlayers[0].name : 'Someone');
 
                 return (
                   <div className="lobby-container">
@@ -3291,10 +3387,17 @@ export default function PlayGame() {
                               #{idx + 1}
                             </span>
                             <span style={{ fontSize: '1.1rem', fontWeight: idx === 0 ? 'bold' : 'normal', color: p.name === 'You' ? '#00fff9' : '#fff' }}>
-                              {p.name} {idx === 0 ? '👑' : ''}
+                              {p.name} {idx === 0 && !p.isEliminated ? '👑' : ''}
                             </span>
+                            {p.isEliminated && (
+                              <span style={{ fontSize: '0.8rem', color: '#ff4d4d', background: 'rgba(255, 77, 77, 0.1)', padding: '2px 8px', borderRadius: '4px', marginLeft: '0.5rem' }}>
+                                💀 ELIMINATED
+                              </span>
+                            )}
                           </div>
-                          <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{p.xp} XP</span>
+                          <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: p.isEliminated ? 'rgba(255,255,255,0.4)' : '#fff' }}>
+                            {p.xp} XP
+                          </span>
                         </div>
                       ))}
                     </div>

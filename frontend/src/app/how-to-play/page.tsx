@@ -503,19 +503,19 @@ export default function HowToPlay() {
                 <div className="block-icon">🏴‍☠️</div>
                 <div className="block-name">Steal Block</div>
                 <div className="block-description">
-                  <strong>Action:</strong> Pick another player to steal from<br />
-                  <strong>Success (50%):</strong> Steal <span className="highlight-green">5 XP</span> from them<br />
-                  <strong>Blocked (50%):</strong> If target has a shield, it absorbs the attack and they keep their XP
+                  <strong>Action:</strong> Pick another player to steal from.<br />
+                  <strong>Target Decision:</strong> The target is notified and must choose to 🛡️ Use a Shield, 💰 Forfeit (pay a higher penalty but block the steal), or 🏳️ Allow the steal.<br />
+                  <strong>Outcome:</strong> Success steals <span className="highlight-green">5 XP</span>.
                 </div>
               </div>
 
               <div className="block-card governance">
-                <div className="block-icon">🗳️</div>
-                <div className="block-name">Governance Block</div>
+                <div className="block-icon">🤖</div>
+                <div className="block-name">AI Governance</div>
                 <div className="block-description">
-                  <strong>Action:</strong> Create a proposal for all players to vote on<br />
-                  <strong>Proposal types:</strong> Double XP, Extra Turn, Shield All<br />
-                  <strong>Voting:</strong> All players vote yes/no. If it passes, the effect activates! Voters earn <span className="highlight-green">+2 XP</span>
+                  <strong>Action:</strong> Trigger an AI-driven global event.<br />
+                  <strong>AI Deliberation:</strong> The GenLayer AI Agent proposes and immediately decides on a game-wide rule change (e.g., giving everyone shields, tax players, or awarding group XP).<br />
+                  <strong>Note:</strong> No voting required — the AI's word is law!
                 </div>
               </div>
 
@@ -523,10 +523,22 @@ export default function HowToPlay() {
                 <div className="block-icon">🔨</div>
                 <div className="block-name">Auction Block</div>
                 <div className="block-description">
-                  <strong>Action:</strong> Bid your XP to win a <span className="highlight">2x Multiplier</span><br />
-                  <strong>Strategy:</strong> Highest bidder wins but loses the XP they bid. Multiplier doubles Build block rewards — invest early for max value!
+                  <strong>Action:</strong> Bid your XP to win a <span className="highlight">2x Multiplier</span>.<br />
+                  <strong>Turn-Based Bidding:</strong> Players bid in sequence. If you pass once, you are out of that specific auction. Last bidder standing wins!
                 </div>
               </div>
+            </div>
+
+            <div className="tip-box" style={{ marginTop: '1.5rem', borderLeft: '6px solid #00fff9' }}>
+               <div className="tip-title">⚔️ Challenge Mechanic</div>
+               <div className="tip-content">
+                  When a player lands on a <strong>Build Block</strong>, they "propose" a contract. Other players see a <strong>Challenge Banner</strong>. If you challenge:
+                  <ul>
+                    <li><strong>AI Validation:</strong> The GenLayer AI Agent reviews the "code" build.</li>
+                    <li><strong>Win:</strong> You get <span className="highlight-green">+3 XP</span> and break their build combo.</li>
+                    <li><strong>Lose:</strong> You lose <span className="highlight-red">3 XP</span> and the builder gets <span className="highlight-green">+7 XP</span> bonus!</li>
+                  </ul>
+               </div>
             </div>
           </div>
 
@@ -548,7 +560,7 @@ export default function HowToPlay() {
                 <div className="block-name">Hazard Block</div>
                 <div className="block-description">
                   <strong>Penalty:</strong> <span className="highlight-red">-5 XP</span><br />
-                  A serious hit. Can set you back significantly in the race to 100.
+                  A serious hit. Can set you back significantly.
                 </div>
               </div>
 
@@ -556,8 +568,8 @@ export default function HowToPlay() {
                 <div className="block-icon">💀</div>
                 <div className="block-name">End Block</div>
                 <div className="block-description">
-                  <strong>Penalty:</strong> <span className="highlight-red">-10 XP AND elimination!</span><br />
-                  The worst block. You lose 10 XP and are eliminated from the game entirely. Avoid at all costs!
+                  <strong>Penalty:</strong> <span className="highlight-red">-5 XP AND elimination!</span><br />
+                  The worst block. You lose 5 XP and are eliminated from the game entirely.
                 </div>
               </div>
             </div>
@@ -565,140 +577,11 @@ export default function HowToPlay() {
             <div className="warning-box">
               <div className="warning-title">
                 <span>💀</span>
-                <span>Penalty Summary</span>
+                <span>Elimination Warning</span>
               </div>
               <div className="tip-content">
-                <table className="penalty-table">
-                  <thead>
-                    <tr>
-                      <th>Block</th>
-                      <th>XP Loss</th>
-                      <th>Extra Effect</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>⚠️ Danger</td>
-                      <td style={{ color: '#ff006e' }}>-2 XP</td>
-                      <td>None</td>
-                    </tr>
-                    <tr>
-                      <td>☠️ Hazard</td>
-                      <td style={{ color: '#ff006e' }}>-5 XP</td>
-                      <td>None</td>
-                    </tr>
-                    <tr>
-                      <td>💀 End</td>
-                      <td style={{ color: '#ff006e' }}>-10 XP</td>
-                      <td style={{ color: '#ff006e' }}>Eliminated from game!</td>
-                    </tr>
-                  </tbody>
-                </table>
+                Players are eliminated if they land on an <strong>End Block</strong> OR if their XP drops to <strong>0</strong>. Eliminated players are removed from the board and cannot win.
               </div>
-            </div>
-          </div>
-
-          {/* Combos, Multipliers & Shields */}
-          <div className="section">
-            <h2 className="section-title">⚡ Combos, Multipliers & Shields</h2>
-            <div className="section-content">
-              <p><strong>🔥 Build Combos:</strong></p>
-              <ul>
-                <li>Every time you land on a Build block <em>consecutively</em>, your combo counter goes up</li>
-                <li>Reach a <span className="highlight">3-combo</span> and you earn a <span className="highlight-green">2x Multiplier</span></li>
-                <li>With a 2x multiplier, Build blocks give <span className="highlight-green">+12 XP</span> instead of +6</li>
-                <li>Landing on any non-Build block <span className="highlight-red">resets your combo to 0</span></li>
-              </ul>
-
-              <p><strong>✨ Multipliers:</strong></p>
-              <ul>
-                <li>Can be earned from: Build combos, Lucky blocks, or Auction wins</li>
-                <li>Doubles XP gains from Build blocks</li>
-                <li>Stays active until overwritten or reset</li>
-              </ul>
-
-              <p><strong>🛡️ Shields:</strong></p>
-              <ul>
-                <li>Protect you from Steal attacks</li>
-                <li>Earned from: Bonus blocks, Mystery blocks, Lucky blocks</li>
-                <li>When someone tries to steal from you, one shield is consumed to block the attack</li>
-                <li>You can stack multiple shields</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Strategy Tips */}
-          <div className="section">
-            <h2 className="section-title">💡 Strategy Tips</h2>
-            <div className="section-content">
-              <div className="tip-box">
-                <div className="tip-title">
-                  <span>🎯</span>
-                  <span>Build Combos Early</span>
-                </div>
-                <div className="tip-content">
-                  The 2x multiplier from a 3-combo is extremely powerful. Building combos early means more doubled rewards throughout the game. +12 XP per Build block adds up fast!
-                </div>
-              </div>
-
-              <div className="tip-box">
-                <div className="tip-title">
-                  <span>🛡️</span>
-                  <span>Shields Save Games</span>
-                </div>
-                <div className="tip-content">
-                  When you're in the lead, shields become critical. Other players will target you with Steal blocks. Having 2-3 shields can be the difference between winning and losing.
-                </div>
-              </div>
-
-              <div className="tip-box">
-                <div className="tip-title">
-                  <span>🔨</span>
-                  <span>Auction Timing Matters</span>
-                </div>
-                <div className="tip-content">
-                  Winning an auction early gives you more turns to earn double XP from Build blocks. But don't overbid! If you spend 20 XP to win, you need 4+ Build blocks to break even.
-                </div>
-              </div>
-
-              <div className="tip-box">
-                <div className="tip-title">
-                  <span>🏴‍☠️</span>
-                  <span>Target the Leader</span>
-                </div>
-                <div className="tip-content">
-                  When you land on Steal, always target the player with the most XP. Stealing 5 XP from the leader is a 10 XP swing in your favor!
-                </div>
-              </div>
-
-              <div className="tip-box">
-                <div className="tip-title">
-                  <span>💀</span>
-                  <span>Watch for End Blocks</span>
-                </div>
-                <div className="tip-content">
-                  End blocks are instant elimination. Know where they are on the board and count your dice rolls carefully when approaching one. It's the only block that can knock you out completely.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Winning */}
-          <div className="section">
-            <h2 className="section-title">🏆 Winning & Leaderboards</h2>
-            <div className="section-content">
-              <p>
-                The game ends when any player reaches <span className="highlight">100 XP</span>. That player wins and their victory is recorded on-chain!
-              </p>
-              <p>
-                The game also ends if only one player remains (all others eliminated) — the last player standing wins regardless of XP.
-              </p>
-              <p><strong>Leaderboards:</strong></p>
-              <ul>
-                <li>🏅 <strong>Daily Leaderboard:</strong> Compete for today's top spot</li>
-                <li>🥇 <strong>Weekly Leaderboard:</strong> Dominate the week</li>
-                <li>👑 <strong>All-Time Leaderboard:</strong> Become a legend — total wins tracked forever on-chain</li>
-              </ul>
             </div>
           </div>
 
@@ -710,23 +593,36 @@ export default function HowToPlay() {
                 When you land on the <strong>same block as another player</strong>, a Battle Collision triggers automatically!
               </p>
               <ul>
-                <li>You steal <span className="highlight-green">2 XP</span> from each player on that block</li>
-                <li>If multiple players are on the same block, you steal from all of them</li>
-                <li>Shields do <strong>not</strong> protect against battle collisions</li>
+                <li>You steal <span className="highlight-green">1 XP</span> from each player already on that block.</li>
+                <li>Shields do <strong>not</strong> protect against battle collisions.</li>
+                <li>Strategic Tip: Landing on a "crowded" block is a great way to boost XP.</li>
               </ul>
+            </div>
+          </div>
+
+          {/* Winning */}
+          <div className="section">
+            <h2 className="section-title">🏆 Winning & Leaderboards</h2>
+            <div className="section-content">
+              <p>
+                The game ends when any player reaches <span className="highlight">100 XP</span>. That player wins and their victory is recorded on-chain!
+              </p>
+              <p>
+                The game also ends if <strong>only one player remains</strong> (all others eliminated). This "Last Player Standing" wins immediately regardless of their current XP!
+              </p>
             </div>
           </div>
 
           {/* Quitting */}
           <div className="section">
-            <h2 className="section-title">🚪 Quitting a Game</h2>
+            <h2 className="section-title">🚪 Leaving a Room</h2>
             <div className="section-content">
               <p>
-                You can quit at any time using the <span className="highlight-red">🚪 Quit Game</span> button at the bottom of the game screen.
+                You can leave a room using the <strong>Quit Room</strong> button in the lobby or <strong>Quit Game</strong> during play.
               </p>
               <ul>
-                <li>If the game <strong>hasn't started</strong>: You're fully removed from the room</li>
-                <li>If the game <strong>is in progress</strong>: You're marked as eliminated. If it was your turn, it automatically passes to the next player</li>
+                <li>If you leave while a game is active, you are automatically <strong>eliminated</strong>.</li>
+                <li>The game will automatically adjust the turn order to skip eliminated players.</li>
               </ul>
             </div>
           </div>

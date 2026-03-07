@@ -3,58 +3,60 @@
 import { useState } from 'react'
 import { useAccount } from 'wagmi'
 import { writeGenLayerContract } from '@/lib/genlayer-client'
+import { sounds } from '@/lib/sounds'
 
 interface GovernanceVotingProps {
-    roomCode: string
-    proposal: string // Format: "proposal_type:description|yes_votes|no_votes"
-    onVoteComplete: () => void
-    onClose: () => void
+  roomCode: string
+  proposal: string // Format: "proposal_type:description|yes_votes|no_votes"
+  onVoteComplete: () => void
+  onClose: () => void
 }
 
 export function GovernanceVoting({ roomCode, proposal, onVoteComplete, onClose }: GovernanceVotingProps) {
-    const { address } = useAccount()
-    const [voting, setVoting] = useState(false)
-    const [voted, setVoted] = useState(false)
+  const { address } = useAccount()
+  const [voting, setVoting] = useState(false)
+  const [voted, setVoted] = useState(false)
 
-    if (!proposal || proposal === 'none') {
-        return null
+  if (!proposal || proposal === 'none') {
+    return null
+  }
+
+  const parts = proposal.split('|')
+  const [typeAndDesc, yesVotes, noVotes] = parts
+  const [proposalType, description] = typeAndDesc.split(':')
+
+  const handleVote = async (voteYes: boolean) => {
+    setVoting(true)
+    sounds.playClick()
+    try {
+      if (!address) throw new Error('Wallet not connected')
+      await writeGenLayerContract('vote_on_proposal', [roomCode, voteYes], address)
+      setVoted(true)
+      setTimeout(() => {
+        onVoteComplete()
+        onClose()
+      }, 2000)
+    } catch (error: any) {
+      console.error('Vote failed:', error)
+      alert(`Vote failed: ${error.message || 'Unknown error'}`)
+    } finally {
+      setVoting(false)
     }
+  }
 
-    const parts = proposal.split('|')
-    const [typeAndDesc, yesVotes, noVotes] = parts
-    const [proposalType, description] = typeAndDesc.split(':')
-
-    const handleVote = async (voteYes: boolean) => {
-        setVoting(true)
-        try {
-            if (!address) throw new Error('Wallet not connected')
-            await writeGenLayerContract('vote_on_proposal', [roomCode, voteYes], address)
-            setVoted(true)
-            setTimeout(() => {
-                onVoteComplete()
-                onClose()
-            }, 2000)
-        } catch (error: any) {
-            console.error('Vote failed:', error)
-            alert(`Vote failed: ${error.message || 'Unknown error'}`)
-        } finally {
-            setVoting(false)
-        }
+  const getProposalIcon = () => {
+    switch (proposalType) {
+      case 'double_xp': return '⚡'
+      case 'extra_turn': return '🔄'
+      case 'shield_all': return '🛡️'
+      default: return '📜'
     }
+  }
 
-    const getProposalIcon = () => {
-        switch (proposalType) {
-            case 'double_xp': return '⚡'
-            case 'extra_turn': return '🔄'
-            case 'shield_all': return '🛡️'
-            default: return '📜'
-        }
-    }
-
-    return (
-        <>
-            <style dangerouslySetInnerHTML={{
-                __html: `
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .governance-overlay {
           position: fixed;
           top: 0;
@@ -202,53 +204,53 @@ export function GovernanceVoting({ roomCode, proposal, onVoteComplete, onClose }
         }
       `}}></style>
 
-            <div className="governance-overlay" onClick={onClose}>
-                <div className="governance-modal" onClick={(e) => e.stopPropagation()}>
-                    {voted ? (
-                        <div className="vote-success">
-                            <div className="vote-success-icon">✅</div>
-                            <div className="vote-success-text">Vote Recorded!</div>
-                            <div className="vote-reward">+2 XP Earned</div>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="governance-header">
-                                <div className="governance-icon">{getProposalIcon()}</div>
-                                <div className="governance-title">Governance Proposal</div>
-                                <div className="governance-description">{description}</div>
-                            </div>
-
-                            <div className="vote-stats">
-                                <div className="vote-stat">
-                                    <div className="vote-label">Yes Votes</div>
-                                    <div className="vote-count yes">👍 {yesVotes || 0}</div>
-                                </div>
-                                <div className="vote-stat">
-                                    <div className="vote-label">No Votes</div>
-                                    <div className="vote-count no">👎 {noVotes || 0}</div>
-                                </div>
-                            </div>
-
-                            <div className="vote-buttons">
-                                <button
-                                    className="vote-button yes"
-                                    onClick={() => handleVote(true)}
-                                    disabled={voting}
-                                >
-                                    {voting ? 'Voting...' : '✅ Vote Yes'}
-                                </button>
-                                <button
-                                    className="vote-button no"
-                                    onClick={() => handleVote(false)}
-                                    disabled={voting}
-                                >
-                                    {voting ? 'Voting...' : '❌ Vote No'}
-                                </button>
-                            </div>
-                        </>
-                    )}
-                </div>
+      <div className="governance-overlay" onClick={onClose}>
+        <div className="governance-modal" onClick={(e) => e.stopPropagation()}>
+          {voted ? (
+            <div className="vote-success">
+              <div className="vote-success-icon">✅</div>
+              <div className="vote-success-text">Vote Recorded!</div>
+              <div className="vote-reward">+2 XP Earned</div>
             </div>
-        </>
-    )
+          ) : (
+            <>
+              <div className="governance-header">
+                <div className="governance-icon">{getProposalIcon()}</div>
+                <div className="governance-title">Governance Proposal</div>
+                <div className="governance-description">{description}</div>
+              </div>
+
+              <div className="vote-stats">
+                <div className="vote-stat">
+                  <div className="vote-label">Yes Votes</div>
+                  <div className="vote-count yes">👍 {yesVotes || 0}</div>
+                </div>
+                <div className="vote-stat">
+                  <div className="vote-label">No Votes</div>
+                  <div className="vote-count no">👎 {noVotes || 0}</div>
+                </div>
+              </div>
+
+              <div className="vote-buttons">
+                <button
+                  className="vote-button yes"
+                  onClick={() => handleVote(true)}
+                  disabled={voting}
+                >
+                  {voting ? 'Voting...' : '✅ Vote Yes'}
+                </button>
+                <button
+                  className="vote-button no"
+                  onClick={() => handleVote(false)}
+                  disabled={voting}
+                >
+                  {voting ? 'Voting...' : '❌ Vote No'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  )
 }

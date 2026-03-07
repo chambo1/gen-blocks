@@ -271,15 +271,26 @@ class GenBlocks(gl.Contract):
         self.room_log[room_code] = "|".join(entries)
 
     def _deduct_xp(self, room_code: str, player_addr: str, amount: int) -> None:
-        """Internal: Deduct XP and check for elimination"""
+        """Internal: Deduct XP, check for elimination and winners"""
         key = f"{room_code}:{player_addr.lower()}"
         current_xp = int(self.player_xp.get(key) or "0")
         new_xp = max(0, current_xp - amount)
         self.player_xp[key] = str(new_xp)
         
         if new_xp == 0:
-            self.player_eliminated[key] = "true"
-            self._add_to_log(room_code, "ELIMINATED (Ran out of XP)", player_addr)
+            if self.player_eliminated.get(key) != "true":
+                self.player_eliminated[key] = "true"
+                self._add_to_log(room_code, "ELIMINATED (Ran out of XP)", player_addr)
+        
+        # Always check winners after state change
+        self._check_winners(room_code)
+
+    def _add_xp(self, room_code: str, player_addr: str, amount: int) -> None:
+        """Internal: Add XP and check for winners"""
+        key = f"{room_code}:{player_addr.lower()}"
+        current_xp = int(self.player_xp.get(key) or "0")
+        self.player_xp[key] = str(current_xp + amount)
+        self._check_winners(room_code)
 
     def _deterministic_rand(self, room_code: str, max_val: int, extra: str = "") -> int:
         """Internal: Deterministic pseudo-random number generation"""
@@ -482,8 +493,7 @@ class GenBlocks(gl.Contract):
             
             # Award XP for passing START
             if new_pos < pos_num:
-                current_xp = int(self.player_xp.get(key) or "0")
-                self.player_xp[key] = str(current_xp + 10)
+                self._add_xp(room_code, player_addr, 10)
                 
             self.player_position[key] = str(new_pos)
             self.last_dice_roll[key] = str(dice_roll)
@@ -578,11 +588,13 @@ class GenBlocks(gl.Contract):
         if not found_active:
             # If everyone is eliminated somehow, just use next_turn anyway
             # but usually _check_winners would end the game
-            next_turn = (turn_index + 1) % len(players)
-
-        self.current_turn[room_code] = str(next_turn)
+            self.current_turn[room_code] = str(next_turn)
+        else:
+            self.current_turn[room_code] = str(next_turn)
+            
         self.turn_phase[room_code] = "rolling"
         self.turn_active_mult[room_code] = "1"
+        self._check_winners(room_code)
         self._add_to_log(room_code, f"Passed turn to {self._get_player_label(room_code, players[next_turn])}")
 
     @gl.public.write
@@ -629,6 +641,7 @@ class GenBlocks(gl.Contract):
         self.turn_phase[room_code] = "rolling"
         self.turn_active_mult[room_code] = "1"
         self._add_to_log(room_code, f"Passed turn to {self._get_player_label(room_code, players[next_turn])}")
+        self._check_winners(room_code)
 
     @gl.public.write
     def close_inactive_room(self, room_code: str) -> str:
@@ -840,8 +853,7 @@ class GenBlocks(gl.Contract):
                 s = int(self.player_shields.get(p_key) or "0")
                 self.player_shields[p_key] = str(s + 1)
             elif winner_id == "group_xp":
-                x = int(self.player_xp.get(p_key) or "0")
-                self.player_xp[p_key] = str(x + 5)
+                self._add_xp(room_code, p, 5)
             elif winner_id == "tax_players":
                 self._deduct_xp(room_code, addr, 5)
             elif winner_id == "burn_shields":
@@ -1246,7 +1258,7 @@ class GenBlocks(gl.Contract):
         active_mult = int(self.turn_active_mult.get(room_code) or "1")
         xp_gain = base_xp * active_mult
         
-        self.player_xp[key] = str(current_xp + xp_gain)
+        self._add_xp(room_code, player_addr, xp_gain)
         self.player_combo[key] = str(current_combo + 1)
         self.turn_phase[room_code] = "finishing"
         self._add_to_log(room_code, f"built (+{xp_gain} XP)", player_addr)
@@ -1284,11 +1296,10 @@ class GenBlocks(gl.Contract):
         reward_type = self._deterministic_rand(room_code, 2, "bonus")
         
         if reward_type == 0:
-            current_xp = int(self.player_xp.get(key) or "0")
             base_xp = 5
             active_mult = int(self.turn_active_mult.get(room_code) or "1")
             xp_gain = base_xp * active_mult
-            self.player_xp[key] = str(current_xp + xp_gain)
+            self._add_xp(room_code, player_addr, xp_gain)
             self._add_to_log(room_code, f"Bonus: +{xp_gain} XP")
         else:
             current_shields = int(self.player_shields.get(key) or "0")
@@ -1326,8 +1337,7 @@ class GenBlocks(gl.Contract):
             base_xp = self._deterministic_rand(room_code, 15, "mystery_xp") + 5
             active_mult = int(self.turn_active_mult.get(room_code) or "1")
             xp_gain = base_xp * active_mult
-            current_xp = int(self.player_xp.get(key) or "0")
-            self.player_xp[key] = str(current_xp + xp_gain)
+            self._add_xp(room_code, player_addr, xp_gain)
             self._add_to_log(room_code, f"Mystery: +{xp_gain} XP")
         else:
             current_shields = int(self.player_shields.get(key) or "0")
@@ -1362,11 +1372,10 @@ class GenBlocks(gl.Contract):
         reward = self._deterministic_rand(room_code, 4, "lucky")
         
         if reward == 1:
-            current_xp = int(self.player_xp.get(key) or "0")
             base_xp = 15
             active_mult = int(self.turn_active_mult.get(room_code) or "1")
             xp_gain = base_xp * active_mult
-            self.player_xp[key] = str(current_xp + xp_gain)
+            self._add_xp(room_code, player_addr, xp_gain)
             self._add_to_log(room_code, f"Lucky: +{xp_gain} XP!")
         elif reward == 2:
             current_shields = int(self.player_shields.get(key) or "0")
@@ -1443,12 +1452,9 @@ class GenBlocks(gl.Contract):
         
         if action == "timeout":
             # Auto-allow the steal if the user doesn't respond
-            target_xp = int(self.player_xp.get(target_key) or "0")
-            attacker_xp = int(self.player_xp.get(attacker_key) or "0")
-            steal_amount = min(5, target_xp)
-            self.player_xp[target_key] = str(target_xp - steal_amount)
-            self.player_xp[attacker_key] = str(attacker_xp + steal_amount)
-            self._add_to_log(room_code, f"timed out. {self._get_player_label(room_code, pending_attacker)} stole {steal_amount} XP!", target_lower)
+            self._deduct_xp(room_code, target_lower, 5)
+            self._add_xp(room_code, pending_attacker, 5)
+            self._add_to_log(room_code, f"timed out. {self._get_player_label(room_code, pending_attacker)} stole 5 XP!", target_lower)
             
         elif action == "shield":
             shields = int(self.player_shields.get(target_key) or "0")
@@ -1471,13 +1477,11 @@ class GenBlocks(gl.Contract):
             self._add_to_log(room_code, f"forfeited {penalty} XP to block steal!", target_lower)
             
         elif action == "allow":
-            target_xp = int(self.player_xp.get(target_key) or "0")
-            attacker_xp = int(self.player_xp.get(attacker_key) or "0")
-            steal_amount = min(5, target_xp)
-            
-            self._deduct_xp(room_code, target_lower, steal_amount)
-            self.player_xp[attacker_key] = str(attacker_xp + steal_amount)
-            self._add_to_log(room_code, f"stole {steal_amount} XP!", pending_attacker)
+            t_xp = int(self.player_xp.get(target_key) or "0")
+            s_val = min(5, t_xp)
+            self._deduct_xp(room_code, target_lower, s_val)
+            self._add_xp(room_code, pending_attacker, s_val)
+            self._add_to_log(room_code, f"stole {s_val} XP!", pending_attacker)
             
         else:
             raise Exception("Invalid action")
@@ -1493,10 +1497,7 @@ class GenBlocks(gl.Contract):
         winner = self.auction_highest_bidder.get(room_code) or ""
         if winner and winner != "none":
             bid = int(self.auction_highest_bid.get(room_code) or "0")
-            key = f"{room_code}:{winner}"
-            
-            player_xp = int(self.player_xp.get(key) or "0")
-            self.player_xp[key] = str(max(0, player_xp - bid))
+            self._deduct_xp(room_code, winner, bid)
             
             mults = int(self.player_multiplier.get(key) or "0")
             self.player_multiplier[key] = str(mults + 1)
