@@ -111,6 +111,13 @@ export default function PlayGame() {
     return true
   })
 
+  // Helper to normalize addresses (handle 0x prefix mismatch)
+  const normalizeAddr = useCallback((addr: string | undefined | null) => {
+    if (!addr) return ''
+    const clean = addr.toLowerCase().trim()
+    return clean.startsWith('0x') ? clean.slice(2) : clean
+  }, [])
+
   // Sync sound engine
   useEffect(() => {
     sounds.setEnabled(soundEnabled)
@@ -204,12 +211,7 @@ export default function PlayGame() {
     }
   }, [gameState])
 
-  // Helper to normalize addresses (handle 0x prefix mismatch)
-  const normalizeAddr = useCallback((addr: string | undefined | null) => {
-    if (!addr) return ''
-    const clean = addr.toLowerCase().trim()
-    return clean.startsWith('0x') ? clean.slice(2) : clean
-  }, [])
+
 
   // Contract read hooks for syncing state
   // NOTE: Critical state (player count, creator, started) is now fetched via SDK polling
