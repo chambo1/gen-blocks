@@ -7,7 +7,7 @@ import Link from "next/link"
 import { CONTRACT_ADDRESS, CONTRACT_ABI, getPlayerKey } from '@/lib/genlayer'
 import { writeGenLayerContract, readGenLayerContract } from '@/lib/genlayer-client'
 import { PlayersDisplay } from '@/components/PlayersDisplay'
-import { GovernanceVoting } from '@/components/GovernanceVoting'
+// GovernanceVoting removed — governance is now AI-driven and shown in Turn Summary
 import { sounds } from '@/lib/sounds'
 
 interface Player {
@@ -99,7 +99,7 @@ export default function PlayGame() {
   const [xpBeforeRoll, setXpBeforeRoll] = useState(0)
   const [pendingRoomCode, setPendingRoomCode] = useState<string>('')
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false)
-  const [showGovernanceVoting, setShowGovernanceVoting] = useState(false)
+  // GovernanceVoting modal removed — AI governance results shown in Turn Summary popup
   const [governanceProposal, setGovernanceProposal] = useState<string>('none')
   const [isMyTurn, setIsMyTurn] = useState(false)
   const [actionCompleted, setActionCompleted] = useState(false)
@@ -798,7 +798,6 @@ export default function PlayGame() {
         // 2. Process Governance
         if (govData && govData !== 'none' && govData !== governanceProposal) {
           setGovernanceProposal(govData)
-          setShowGovernanceVoting(true)
         }
 
         // 3. Process Logs
@@ -3300,19 +3299,7 @@ export default function PlayGame() {
                   })()}
 
 
-                  {showGovernanceVoting && (
-                    <GovernanceVoting
-                      roomCode={roomCode}
-                      proposal={governanceProposal}
-                      onVoteComplete={() => {
-                        setGovernanceProposal('none')
-                      }}
-                      onClose={() => {
-                        setShowGovernanceVoting(false)
-                        setGovernanceProposal('none')
-                      }}
-                    />
-                  )}
+                  {/* GovernanceVoting modal removed — AI governance results are shown in Turn Summary popup */}
                   <div className="game-log">
                     <h3 style={{ fontFamily: 'Orbitron', color: '#00fff9', marginBottom: '1rem' }}>
                       📜 Game Log

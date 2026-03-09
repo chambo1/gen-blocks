@@ -313,6 +313,13 @@ export const CONTRACT_ABI = [
     inputs: [{ name: 'player', type: 'string' }],
     outputs: [{ type: 'string' }],
   },
+  {
+    name: 'get_leaderboard',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'period', type: 'string' }],
+    outputs: [{ type: 'string' }],
+  },
   // Block interactions
   {
     name: 'handle_build_block',
